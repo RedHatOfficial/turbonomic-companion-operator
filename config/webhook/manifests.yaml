@@ -1,0 +1,41 @@
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: webhook
+  annotations:
+    service.beta.openshift.io/inject-cabundle: "true"
+webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /mutate-v1-obj
+  failurePolicy: Ignore
+  reinvocationPolicy: IfNeeded
+  name: workloadmutator.turbo.ibm.com
+  rules:
+  - apiGroups:
+    - apps
+    apiVersions:
+    - v1
+    operations:
+    - UPDATE
+    resources:
+    - deployments
+  - apiGroups:
+    - apps.openshift.io
+    apiVersions:
+    - v1
+    operations:
+    - UPDATE
+    resources:
+    - deploymentconfigs
+  sideEffects: NoneOnDryRun
+  namespaceSelector:
+    matchExpressions:
+    - key: turbo.ibm.com/override
+      operator: Exists
+  timeoutSeconds: 15

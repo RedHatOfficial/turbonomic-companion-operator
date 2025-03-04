@@ -1,0 +1,326 @@
+/*
+Copyright 2025 Marek Paterczyk
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+	http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+package mutator
+
+import (
+	"context"
+
+	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/gomega"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
+)
+
+var _ = Describe("WorkloadResourcesMutator webhook", func() {
+
+	log := logf.Log.WithName("workload-resources-mutator-test")
+
+	ctx := context.Background()
+
+	Describe("Workload", func() {
+
+		Context("has compute resources managed by Turbonomic and is otherwise managed by CI/CD", func() {
+
+			const (
+				namespaceName = "resource-override-test"
+				workloadName  = "workload"
+			)
+
+			It("should pass the initial request through unchanged", func() {
+
+				By("Creating a Namespace")
+
+				ns := &corev1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: namespaceName,
+						Labels: map[string]string{
+							"turbo.ibm.com/override": "true",
+						},
+					},
+				}
+				Expect(k8sClient.Create(ctx, ns)).Should(Succeed())
+
+				By("Creating a Workload")
+				deployment := createDeployment(workloadName, namespaceName)
+				Expect(k8sClient.Create(ctx, deployment)).Should(Succeed())
+
+				By("Reading persisted Workload")
+				workload := &appsv1.Deployment{}
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: workloadName, Namespace: namespaceName}, workload)).Should(Succeed())
+
+				By("Checking that compute resources did not change")
+				resources := workload.Spec.Template.Spec.Containers[0].Resources
+				Expect(resources.Requests[corev1.ResourceCPU]).Should(Equal(resource.MustParse("1")))
+				Expect(resources.Requests[corev1.ResourceMemory]).Should(Equal(resource.MustParse("1Gi")))
+				Expect(resources.Limits[corev1.ResourceCPU]).Should(Equal(resource.MustParse("2")))
+				Expect(resources.Limits[corev1.ResourceMemory]).Should(Equal(resource.MustParse("2Gi")))
+			})
+
+			It("should accept Turbonomic recommendation and annotate workload to enable override", func() {
+				By("Reading persisted Workload")
+				workload := &appsv1.Deployment{}
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: workloadName, Namespace: namespaceName}, workload)).Should(Succeed())
+
+				By("Simulating changes made by Turbonomic")
+				resources := workload.Spec.Template.Spec.Containers[0].Resources
+				resources.Requests[corev1.ResourceCPU] = resource.MustParse("500m")
+				resources.Requests[corev1.ResourceMemory] = resource.MustParse("2Gi")
+				resources.Limits[corev1.ResourceCPU] = resource.MustParse("1")
+				resources.Limits[corev1.ResourceMemory] = resource.MustParse("4Gi")
+				Expect(k8sClientTurbo.Update(ctx, workload)).Should(Succeed())
+
+				By("Checking that turbo.ibm.com/override annotation is set to true")
+				Eventually(func() string {
+					Expect(k8sClient.Get(ctx, types.NamespacedName{Name: workloadName, Namespace: namespaceName}, workload)).Should(Succeed())
+
+					return workload.ObjectMeta.Annotations[managedAnnotation]
+				}).Should(Equal("true"))
+
+				By("Checking that compute resources changed to Turbonomic recommendation")
+				resources = workload.Spec.Template.Spec.Containers[0].Resources
+				Expect(resources.Requests[corev1.ResourceCPU]).Should(Equal(resource.MustParse("500m")))
+				Expect(resources.Requests[corev1.ResourceMemory]).Should(Equal(resource.MustParse("2Gi")))
+				Expect(resources.Limits[corev1.ResourceCPU]).Should(Equal(resource.MustParse("1")))
+				Expect(resources.Limits[corev1.ResourceMemory]).Should(Equal(resource.MustParse("4Gi")))
+			})
+
+			It("should NOT let the Workload owner manage resources from The Source of Truth which were set by Turbonomic", func() {
+				By("Taking Workload from The Source of Truth")
+				workload := createDeployment(workloadName, namespaceName)
+
+				By("Simulating changes made by the Workload owner in The Source of Truth")
+				resources := workload.Spec.Template.Spec.Containers[0].Resources
+				resources.Requests[corev1.ResourceCPU] = resource.MustParse("4")
+				resources.Requests[corev1.ResourceMemory] = resource.MustParse("10Gi")
+				resources.Limits[corev1.ResourceCPU] = resource.MustParse("8")
+				resources.Limits[corev1.ResourceMemory] = resource.MustParse("20Gi")
+				workload.ObjectMeta.Annotations = map[string]string{"foo": "bar"}
+				Expect(k8sClient.Update(ctx, workload)).Should(Succeed())
+
+				By("Ensuring changes made by owner and NOT managed by Turbonomic did NOT get lost")
+				Eventually(func() string {
+					Expect(k8sClient.Get(ctx, types.NamespacedName{Name: workloadName, Namespace: namespaceName}, workload)).Should(Succeed())
+
+					return workload.ObjectMeta.Annotations["foo"]
+				}).Should(Equal("bar"))
+
+				By("Ensuring that resources defined earlier by Turbonomic did not change (owner changes dropped)")
+				Expect(workload.ObjectMeta.Annotations[managedAnnotation]).Should(Equal("true"))
+				resources = workload.Spec.Template.Spec.Containers[0].Resources
+				Expect(resources.Requests[corev1.ResourceCPU]).Should(Equal(resource.MustParse("500m")))
+				Expect(resources.Requests[corev1.ResourceMemory]).Should(Equal(resource.MustParse("2Gi")))
+				Expect(resources.Limits[corev1.ResourceCPU]).Should(Equal(resource.MustParse("1")))
+				Expect(resources.Limits[corev1.ResourceMemory]).Should(Equal(resource.MustParse("4Gi")))
+			})
+
+			It("should let Turbonomic make further updates to resources", func() {
+				By("Reading persisted Workload")
+				workload := &appsv1.Deployment{}
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: workloadName, Namespace: namespaceName}, workload)).Should(Succeed())
+
+				By("Simulating changes made by Turbonomic")
+				resources := workload.Spec.Template.Spec.Containers[0].Resources
+				resources.Requests[corev1.ResourceCPU] = resource.MustParse("400m")
+				resources.Requests[corev1.ResourceMemory] = resource.MustParse("1536Mi")
+				resources.Limits[corev1.ResourceCPU] = resource.MustParse("600m")
+				resources.Limits[corev1.ResourceMemory] = resource.MustParse("2Gi")
+				Expect(k8sClientTurbo.Update(ctx, workload)).Should(Succeed())
+
+				By("Ensuring changes made by Turbonomic got applied")
+				Eventually(func() resource.Quantity {
+					Expect(k8sClient.Get(ctx, types.NamespacedName{Name: workloadName, Namespace: namespaceName}, workload)).Should(Succeed())
+
+					return workload.Spec.Template.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU]
+				}).Should(Equal(resource.MustParse("400m")))
+				Expect(workload.ObjectMeta.Annotations[managedAnnotation]).Should(Equal("true"))
+				Expect(resources.Requests[corev1.ResourceMemory]).Should(Equal(resource.MustParse("1536Mi")))
+				Expect(resources.Limits[corev1.ResourceCPU]).Should(Equal(resource.MustParse("600m")))
+				Expect(resources.Limits[corev1.ResourceMemory]).Should(Equal(resource.MustParse("2Gi")))
+
+			})
+
+			It("should NOT override resources when owner changed turbo.ibm.com/override annotation to false", func() {
+				By("Taking Workload from The Source of Truth")
+				workload := createDeployment(workloadName, namespaceName)
+
+				By("Simulating changes made by the Workload owner in The Source of Truth")
+				resources := workload.Spec.Template.Spec.Containers[0].Resources
+				resources.Requests[corev1.ResourceCPU] = resource.MustParse("4")
+				resources.Requests[corev1.ResourceMemory] = resource.MustParse("10Gi")
+				resources.Limits[corev1.ResourceCPU] = resource.MustParse("8")
+				resources.Limits[corev1.ResourceMemory] = resource.MustParse("20Gi")
+				workload.ObjectMeta.Annotations = map[string]string{managedAnnotation: "false"}
+				Expect(k8sClient.Update(ctx, workload)).Should(Succeed())
+
+				log.Info("Workload", "annotations", workload.GetAnnotations(), "labels", workload.GetLabels())
+
+				By("Ensuring that resources defined by owner are effective")
+				Eventually(func() string {
+					Expect(k8sClient.Get(ctx, types.NamespacedName{Name: workloadName, Namespace: namespaceName}, workload)).Should(Succeed())
+
+					return workload.ObjectMeta.Annotations[managedAnnotation]
+				}).Should(Equal("false"))
+
+				Expect(workload.ObjectMeta.Annotations[managedAnnotation]).Should(Equal("false"))
+				Expect(resources.Requests[corev1.ResourceCPU]).Should(Equal(resource.MustParse("4")))
+				Expect(resources.Requests[corev1.ResourceMemory]).Should(Equal(resource.MustParse("10Gi")))
+				Expect(resources.Limits[corev1.ResourceCPU]).Should(Equal(resource.MustParse("8")))
+				Expect(resources.Limits[corev1.ResourceMemory]).Should(Equal(resource.MustParse("20Gi")))
+			})
+
+		})
+
+	})
+
+	Context("has compute resources managed by Turbonomic and is otherwise managed by ArgoCD", func() {
+
+		const (
+			namespaceName = "resource-override-test-argocd"
+			workloadName  = "workload"
+		)
+
+		It("should pass the initial request through unchanged when ArgoCD is the owner", func() {
+
+			By("Creating a Namespace")
+
+			ns := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: namespaceName,
+					Labels: map[string]string{
+						"turbo.ibm.com/override": "true",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, ns)).Should(Succeed())
+
+			By("Creating a Workload")
+			deployment := createDeployment(workloadName, namespaceName)
+			deployment.ObjectMeta.Labels["app.kubernetes.io/instance"] = "some_app"
+			Expect(k8sClient.Create(ctx, deployment)).Should(Succeed())
+		})
+
+		// This scenario is important b/c we do not want back-and-forth reconciliations
+		// between this webhook and ArgoCD. ArgoCD app owner needs to exclude compute resources
+		// from diff comparison.
+		It("should pass-through Turbonomic recommendation without enabling the override", func() {
+			By("Reading persisted Workload")
+			workload := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: workloadName, Namespace: namespaceName}, workload)).Should(Succeed())
+			log.Info("Workload", "annotations", workload.GetAnnotations(), "labels", workload.GetLabels())
+
+			By("Simulating changes made by Turbonomic")
+			resources := workload.Spec.Template.Spec.Containers[0].Resources
+			resources.Requests[corev1.ResourceCPU] = resource.MustParse("500m")
+			resources.Requests[corev1.ResourceMemory] = resource.MustParse("2Gi")
+			resources.Limits[corev1.ResourceCPU] = resource.MustParse("1")
+			resources.Limits[corev1.ResourceMemory] = resource.MustParse("4Gi")
+			Expect(k8sClientTurbo.Update(ctx, workload)).Should(Succeed())
+
+			By("Checking that resources were updated on the workload")
+			Eventually(func() resource.Quantity {
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: workloadName, Namespace: namespaceName}, workload)).Should(Succeed())
+
+				return workload.Spec.Template.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU]
+			}).Should(Equal(resource.MustParse("500m")))
+			resources = workload.Spec.Template.Spec.Containers[0].Resources
+			Expect(resources.Requests[corev1.ResourceMemory]).Should(Equal(resource.MustParse("2Gi")))
+			Expect(resources.Limits[corev1.ResourceCPU]).Should(Equal(resource.MustParse("1")))
+			Expect(resources.Limits[corev1.ResourceMemory]).Should(Equal(resource.MustParse("4Gi")))
+
+			By("Checking that turbo.ibm.com/override annotation was not set")
+			Expect(workload.Annotations[managedAnnotation]).Should(Equal(""))
+		})
+
+		// 'app.kubernetes.io/instance' label may be used by another agent (not ArgoCD)
+		// in this case, give owner the opportunity to explicitly opt-in for override
+		It("should override when explicitly requested, regardless", func() {
+			By("Taking Workload from The Source of Truth")
+			workload := createDeployment(workloadName, namespaceName)
+			By("Explicitly asking for override")
+			workload.ObjectMeta.Annotations = map[string]string{
+				managedAnnotation: "true",
+				"foo":             "bar",
+			}
+			workload.ObjectMeta.Labels = map[string]string{"app.kubernetes.io/instance": "some_app"}
+
+			By("Simulating an update from the owner's Source of Truth")
+			Expect(k8sClient.Update(ctx, workload)).Should(Succeed())
+
+			By("Ensuring changes made by owner and NOT managed by Turbonomic did NOT get lost")
+			Eventually(func() string {
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: workloadName, Namespace: namespaceName}, workload)).Should(Succeed())
+
+				return workload.ObjectMeta.Annotations["foo"]
+			}).Should(Equal("bar"))
+
+			By("Ensuring that resources defined earlier by Turbonomic did not change (owner changes dropped)")
+			Expect(workload.ObjectMeta.Annotations[managedAnnotation]).Should(Equal("true"))
+			resources := workload.Spec.Template.Spec.Containers[0].Resources
+			Expect(resources.Requests[corev1.ResourceCPU]).Should(Equal(resource.MustParse("500m")))
+			Expect(resources.Requests[corev1.ResourceMemory]).Should(Equal(resource.MustParse("2Gi")))
+			Expect(resources.Limits[corev1.ResourceCPU]).Should(Equal(resource.MustParse("1")))
+			Expect(resources.Limits[corev1.ResourceMemory]).Should(Equal(resource.MustParse("4Gi")))
+		})
+
+	})
+})
+
+func createDeployment(name string, namespace string) *appsv1.Deployment {
+	return &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace:   namespace,
+			Name:        name,
+			Labels:      map[string]string{},
+			Annotations: map[string]string{},
+		},
+		Spec: appsv1.DeploymentSpec{
+			Selector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{
+					"app": name,
+				},
+			},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						"app": name,
+					},
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "main",
+							Image: "docker.io/some/image:latest",
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("1"),
+									corev1.ResourceMemory: resource.MustParse("1Gi"),
+								},
+								Limits: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("2"),
+									corev1.ResourceMemory: resource.MustParse("2Gi"),
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+}
