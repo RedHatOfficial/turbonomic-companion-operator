@@ -26,12 +26,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/onsi/ginkgo/config"
 	"go.uber.org/zap/zapcore"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -43,33 +42,29 @@ import (
 	//+kubebuilder:scaffold:imports
 )
 
-// These tests use Ginkgo (BDD-style Go testing framework). Refer to
-// http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
-
-var (
-	cfg            *rest.Config
-	k8sClient      client.Client
-	k8sClientTurbo client.Client
-	testEnv        *envtest.Environment
-	ctx            context.Context
-	cancel         context.CancelFunc
-)
-
 // Define utility constants for object names and testing timeouts/durations and intervals.
 const (
 	timeout = time.Second * 10
 )
 
-func TestAPIs(t *testing.T) {
-	config.GinkgoConfig.ParallelTotal = 1
+// These tests use Ginkgo (BDD-style Go testing framework). Refer to
+// http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
 
+var cfg *rest.Config
+var k8sClient client.Client
+var k8sClientTurbo client.Client
+var testEnv *envtest.Environment
+var ctx context.Context
+var cancel context.CancelFunc
+
+func TestControllers(t *testing.T) {
 	RegisterFailHandler(Fail)
 
-	RunSpecsWithDefaultAndCustomReporters(t,
-		"Controller Suite", []Reporter{})
+	RunSpecs(t, "Controller Suite")
 }
 
-var _ = BeforeSuite(func(done Done) {
+var _ = BeforeSuite(func() {
+
 	opts := zap.Options{
 		Development: true,
 		Level:       zapcore.Level(-10),
@@ -81,7 +76,7 @@ var _ = BeforeSuite(func(done Done) {
 
 	By("bootstrapping test environment")
 	testEnv = &envtest.Environment{
-		CRDDirectoryPaths: []string{filepath.Join("..", "..", "config", "crd", "test")},
+		CRDDirectoryPaths: []string{filepath.Join("..", "..", "config", "crd", "bases")},
 		WebhookInstallOptions: envtest.WebhookInstallOptions{
 			Paths: []string{filepath.Join("..", "..", "config", "webhook")},
 		},
@@ -153,9 +148,7 @@ var _ = BeforeSuite(func(done Done) {
 		return nil
 	}).Should(Succeed())
 
-	close(done)
-
-}, 60)
+})
 
 var _ = AfterSuite(func() {
 	By("tearing down the test environment")
