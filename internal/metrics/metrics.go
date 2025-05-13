@@ -11,7 +11,7 @@ var (
 		Name: "turbonomic_companion_operator_turbo_override_total",
 		Help: "Total number of compute resource overrides performed by the webhook",
 	},
-		[]string{"namespace", "kind", "name"})
+		[]string{"workload_namespace", "workload_kind", "workload_name"})
 )
 
 // RegisterMetrics registers custom metrics with the global Prometheus registry
