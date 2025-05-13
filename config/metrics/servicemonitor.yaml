@@ -1,0 +1,23 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: metrics
+  namespace: turbonomic-companion-operator-system
+  labels:
+    app: turbonomic-companion-operator
+    release: openshift-monitoring  # label to match Prometheus instance's selector (if needed)
+spec:
+  namespaceSelector:
+    matchNames:
+      - turbonomic-companion-operator-system
+  selector:
+    matchLabels:
+      control-plane: controller-manager   # finds the metrics Service by label
+  endpoints:
+    - path: /metrics
+      port: https
+      scheme: https
+      interval: 120s
+      bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+      tlsConfig:
+        insecureSkipVerify: false

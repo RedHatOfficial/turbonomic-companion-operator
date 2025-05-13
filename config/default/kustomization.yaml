@@ -32,6 +32,8 @@ resources:
 # Only CR(s) which requires webhooks and are applied on namespaces labeled with 'webhooks: enabled' will
 # be able to communicate with the Webhook Server.
 #- ../network-policy
+# Uncomment to install ServiceMonitor.monitoring.coreos.com for the OpenShift monitoring stack (Prometheus) to scrape it
+#- ../metrics
 
 # Uncomment the patches line if you enable Metrics, and/or are using webhooks and cert-manager
 patches:
