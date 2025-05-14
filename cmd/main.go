@@ -98,26 +98,11 @@ func main() {
 		tlsOpts = append(tlsOpts, disableHTTP2)
 	}
 
+	tlsOpts = addCert(tlsOpts)
+
 	webhookServer := webhook.NewServer(webhook.Options{
 		TLSOpts: tlsOpts,
 		Port:    9443,
-	})
-
-	metricsCertPath := "/tmp/k8s-webhook-server/serving-certs"
-	setupLog.Info("Initializing metrics certificate watcher using provided certificates", "metrics-cert-path", metricsCertPath)
-
-	var err error
-	metricsCertWatcher, err := certwatcher.New(
-		filepath.Join(metricsCertPath, "tls.crt"),
-		filepath.Join(metricsCertPath, "tls.key"),
-	)
-	if err != nil {
-		setupLog.Error(err, "to initialize metrics certificate watcher", "error", err)
-		os.Exit(1)
-	}
-
-	tlsOpts = append(tlsOpts, func(config *tls.Config) {
-		config.GetCertificate = metricsCertWatcher.GetCertificate
 	})
 
 	// Metrics endpoint is enabled in 'config/default/kustomization.yaml'. The Metrics options configure the server.
@@ -214,4 +199,24 @@ func BoolEnvVar(varName string, defaultValue bool) bool {
 	}
 
 	return boolValue
+}
+
+// Needed to serve metrics using the same cert as the webhook endpoint
+func addCert(tlsOpts []func(*tls.Config)) []func(*tls.Config) {
+	metricsCertPath := "/tmp/k8s-webhook-server/serving-certs"
+	setupLog.Info("Initializing metrics certificate watcher using provided certificates", "metrics-cert-path", metricsCertPath)
+
+	var err error
+	metricsCertWatcher, err := certwatcher.New(
+		filepath.Join(metricsCertPath, "tls.crt"),
+		filepath.Join(metricsCertPath, "tls.key"),
+	)
+	if err != nil {
+		setupLog.Error(err, "to initialize metrics certificate watcher", "error", err)
+		os.Exit(1)
+	}
+
+	return append(tlsOpts, func(config *tls.Config) {
+		config.GetCertificate = metricsCertWatcher.GetCertificate
+	})
 }
