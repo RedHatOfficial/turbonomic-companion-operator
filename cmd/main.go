@@ -21,6 +21,7 @@ import (
 	"flag"
 	"log"
 	"os"
+	"path/filepath"
 	"strconv"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -33,6 +34,7 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
@@ -99,6 +101,23 @@ func main() {
 	webhookServer := webhook.NewServer(webhook.Options{
 		TLSOpts: tlsOpts,
 		Port:    9443,
+	})
+
+	metricsCertPath := "/tmp/k8s-webhook-server/serving-certs"
+	setupLog.Info("Initializing metrics certificate watcher using provided certificates", "metrics-cert-path", metricsCertPath)
+
+	var err error
+	metricsCertWatcher, err := certwatcher.New(
+		filepath.Join(metricsCertPath, "tls.crt"),
+		filepath.Join(metricsCertPath, "tls.key"),
+	)
+	if err != nil {
+		setupLog.Error(err, "to initialize metrics certificate watcher", "error", err)
+		os.Exit(1)
+	}
+
+	tlsOpts = append(tlsOpts, func(config *tls.Config) {
+		config.GetCertificate = metricsCertWatcher.GetCertificate
 	})
 
 	// Metrics endpoint is enabled in 'config/default/kustomization.yaml'. The Metrics options configure the server.

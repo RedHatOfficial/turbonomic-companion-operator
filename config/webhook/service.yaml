@@ -5,6 +5,8 @@ metadata:
   namespace: system
   annotations:
     service.alpha.openshift.io/serving-cert-secret-name: workload-resources-webhook-serving-cert
+  labels:
+    control-plane: controller-manager
 spec:
   ports:
     - port: 443
