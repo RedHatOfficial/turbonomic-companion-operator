@@ -16,6 +16,11 @@ var (
 		Help: "Total number of compute resource overrides performed by the webhook",
 	}, dimensions)
 
+	TurboRecommendedTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "turbonomic_companion_operator_turbo_recommended_total",
+		Help: "Total number actions executed by Turbonomic",
+	}, dimensions)
+
 	TurboRecommendedRequestCpuGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "turbonomic_companion_operator_turbo_recommended_request_cpu",
 		Help: "Cpu requests recommended by Turbonomic",
@@ -40,6 +45,7 @@ var (
 // RegisterMetrics registers custom metrics with the global Prometheus registry
 func RegisterMetrics() {
 	ctrmetrics.Registry.MustRegister(TurboOverridesTotal)
+	ctrmetrics.Registry.MustRegister(TurboRecommendedTotal)
 	ctrmetrics.Registry.MustRegister(TurboRecommendedRequestCpuGauge)
 	ctrmetrics.Registry.MustRegister(TurboRecommendedRequestMemoryGauge)
 	ctrmetrics.Registry.MustRegister(TurboRecommendedLimitCpuGauge)

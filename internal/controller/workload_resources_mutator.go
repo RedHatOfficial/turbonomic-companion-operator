@@ -242,6 +242,8 @@ func trackResourcesByContainer(workloadDimensions []string, source *unstructured
 		}
 	}
 
+	metrics.TurboRecommendedTotal.WithLabelValues(workloadDimensions...).Inc()
+
 	for containerName, resources := range srcResourcesMap {
 		dimensions := append(workloadDimensions, containerName)
 

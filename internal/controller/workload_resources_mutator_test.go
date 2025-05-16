@@ -108,6 +108,9 @@ var _ = Describe("WorkloadResourcesMutator webhook", func() {
 				By("Ensuring that TurboOverridesTotal is NOT incremented")
 				Expect(testutil.ToFloat64(metrics.TurboOverridesTotal.WithLabelValues(namespaceName, "Deployment", workloadName))).Should(Equal(float64(1)))
 
+				By("Ensuring that TurboRecommendedTotal is incremented")
+				Expect(testutil.ToFloat64(metrics.TurboRecommendedTotal.WithLabelValues(namespaceName, "Deployment", workloadName))).Should(Equal(float64(1)))
+
 				By("Ensuring that metrics are set accordingly to Turbonomic recommendation")
 				Expect(testutil.ToFloat64(metrics.TurboRecommendedLimitCpuGauge.WithLabelValues(namespaceName, "Deployment", workloadName, "main"))).Should(Equal(float64(1000)))
 				Expect(testutil.ToFloat64(metrics.TurboRecommendedRequestCpuGauge.WithLabelValues(namespaceName, "Deployment", workloadName, "main"))).Should(Equal(float64(500)))
@@ -146,6 +149,9 @@ var _ = Describe("WorkloadResourcesMutator webhook", func() {
 				By("Ensuring that TurboOverridesTotal is incremented")
 				Expect(testutil.ToFloat64(metrics.TurboOverridesTotal.WithLabelValues(namespaceName, "Deployment", workloadName))).Should(Equal(float64(2)))
 
+				By("Ensuring that TurboRecommendedTotal is NOT incremented")
+				Expect(testutil.ToFloat64(metrics.TurboRecommendedTotal.WithLabelValues(namespaceName, "Deployment", workloadName))).Should(Equal(float64(1)))
+
 				By("Ensuring that metrics are set accordingly to Turbonomic recommendation (i.e. no change)")
 				Expect(testutil.ToFloat64(metrics.TurboRecommendedLimitCpuGauge.WithLabelValues(namespaceName, "Deployment", workloadName, "main"))).Should(Equal(float64(1000)))
 				Expect(testutil.ToFloat64(metrics.TurboRecommendedRequestCpuGauge.WithLabelValues(namespaceName, "Deployment", workloadName, "main"))).Should(Equal(float64(500)))
@@ -179,6 +185,9 @@ var _ = Describe("WorkloadResourcesMutator webhook", func() {
 
 				By("Ensuring that TurboOverridesTotal is NOT incremented")
 				Expect(testutil.ToFloat64(metrics.TurboOverridesTotal.WithLabelValues(namespaceName, "Deployment", workloadName))).Should(Equal(float64(2)))
+
+				By("Ensuring that TurboRecommendedTotal is incremented")
+				Expect(testutil.ToFloat64(metrics.TurboRecommendedTotal.WithLabelValues(namespaceName, "Deployment", workloadName))).Should(Equal(float64(2)))
 
 				By("Ensuring that metrics are set accordingly to new Turbonomic recommendation")
 				Expect(testutil.ToFloat64(metrics.TurboRecommendedLimitCpuGauge.WithLabelValues(namespaceName, "Deployment", workloadName, "main"))).Should(Equal(float64(600)))
