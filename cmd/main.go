@@ -98,7 +98,8 @@ func main() {
 		tlsOpts = append(tlsOpts, disableHTTP2)
 	}
 
-	tlsOpts = addCert(tlsOpts)
+	// /metrics endpoint will use the same Service and certificate as the webhook endpoint
+	tlsOpts = addCertPath(tlsOpts, "/tmp/k8s-webhook-server/serving-certs")
 
 	webhookServer := webhook.NewServer(webhook.Options{
 		TLSOpts: tlsOpts,
@@ -202,14 +203,13 @@ func BoolEnvVar(varName string, defaultValue bool) bool {
 }
 
 // Needed to serve metrics using the same cert as the webhook endpoint
-func addCert(tlsOpts []func(*tls.Config)) []func(*tls.Config) {
-	metricsCertPath := "/tmp/k8s-webhook-server/serving-certs"
-	setupLog.Info("Initializing metrics certificate watcher using provided certificates", "metrics-cert-path", metricsCertPath)
+func addCertPath(tlsOpts []func(*tls.Config), certPath string) []func(*tls.Config) {
+	setupLog.Info("Initializing certificate watcher using provided certificates", "certPath", certPath)
 
 	var err error
 	metricsCertWatcher, err := certwatcher.New(
-		filepath.Join(metricsCertPath, "tls.crt"),
-		filepath.Join(metricsCertPath, "tls.key"),
+		filepath.Join(certPath, "tls.crt"),
+		filepath.Join(certPath, "tls.key"),
 	)
 	if err != nil {
 		setupLog.Error(err, "to initialize metrics certificate watcher", "error", err)
