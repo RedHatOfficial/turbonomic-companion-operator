@@ -5,9 +5,16 @@ metadata:
   namespace: system
   annotations:
     service.alpha.openshift.io/serving-cert-secret-name: workload-resources-webhook-serving-cert
+  labels:
+    control-plane: controller-manager
 spec:
   ports:
     - port: 443
       targetPort: 9443
+      name: https
+    - name: https-metrics
+      port: 8443
+      protocol: TCP
+      targetPort: 8443
   selector:
     control-plane: controller-manager

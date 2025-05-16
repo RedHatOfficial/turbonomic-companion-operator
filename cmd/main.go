@@ -21,17 +21,20 @@ import (
 	"flag"
 	"log"
 	"os"
+	"path/filepath"
 	"strconv"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	mutator "github.com/RedHatOfficial/turbonomic-companion-operator/internal/controller"
+	"github.com/RedHatOfficial/turbonomic-companion-operator/internal/metrics"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
@@ -77,6 +80,9 @@ func main() {
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
+	// custom metrics
+	metrics.RegisterMetrics()
+
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will
 	// prevent from being vulnerable to the HTTP/2 Stream Cancellation and
@@ -91,6 +97,8 @@ func main() {
 	if !enableHTTP2 {
 		tlsOpts = append(tlsOpts, disableHTTP2)
 	}
+
+	tlsOpts = addCert(tlsOpts)
 
 	webhookServer := webhook.NewServer(webhook.Options{
 		TLSOpts: tlsOpts,
@@ -191,4 +199,24 @@ func BoolEnvVar(varName string, defaultValue bool) bool {
 	}
 
 	return boolValue
+}
+
+// Needed to serve metrics using the same cert as the webhook endpoint
+func addCert(tlsOpts []func(*tls.Config)) []func(*tls.Config) {
+	metricsCertPath := "/tmp/k8s-webhook-server/serving-certs"
+	setupLog.Info("Initializing metrics certificate watcher using provided certificates", "metrics-cert-path", metricsCertPath)
+
+	var err error
+	metricsCertWatcher, err := certwatcher.New(
+		filepath.Join(metricsCertPath, "tls.crt"),
+		filepath.Join(metricsCertPath, "tls.key"),
+	)
+	if err != nil {
+		setupLog.Error(err, "to initialize metrics certificate watcher", "error", err)
+		os.Exit(1)
+	}
+
+	return append(tlsOpts, func(config *tls.Config) {
+		config.GetCertificate = metricsCertWatcher.GetCertificate
+	})
 }

@@ -18,8 +18,10 @@ package controller
 import (
 	"context"
 
+	"github.com/RedHatOfficial/turbonomic-companion-operator/internal/metrics"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -71,6 +73,9 @@ var _ = Describe("WorkloadResourcesMutator webhook", func() {
 				Expect(resources.Requests[corev1.ResourceMemory]).Should(Equal(resource.MustParse("1Gi")))
 				Expect(resources.Limits[corev1.ResourceCPU]).Should(Equal(resource.MustParse("2")))
 				Expect(resources.Limits[corev1.ResourceMemory]).Should(Equal(resource.MustParse("2Gi")))
+
+				By("Initializing metrics")
+				metrics.TurboOverridesTotal.WithLabelValues(namespaceName, "Deployment", workloadName).Inc()
 			})
 
 			It("should accept Turbonomic recommendation and annotate workload to enable override", func() {
@@ -99,6 +104,9 @@ var _ = Describe("WorkloadResourcesMutator webhook", func() {
 				Expect(resources.Requests[corev1.ResourceMemory]).Should(Equal(resource.MustParse("2Gi")))
 				Expect(resources.Limits[corev1.ResourceCPU]).Should(Equal(resource.MustParse("1")))
 				Expect(resources.Limits[corev1.ResourceMemory]).Should(Equal(resource.MustParse("4Gi")))
+
+				By("Ensuring that TurboOverridesTotal is NOT incremented")
+				Expect(testutil.ToFloat64(metrics.TurboOverridesTotal.WithLabelValues(namespaceName, "Deployment", workloadName))).Should(Equal(float64(1)))
 			})
 
 			It("should NOT let the Workload owner manage resources from The Source of Truth which were set by Turbonomic", func() {
@@ -128,6 +136,9 @@ var _ = Describe("WorkloadResourcesMutator webhook", func() {
 				Expect(resources.Requests[corev1.ResourceMemory]).Should(Equal(resource.MustParse("2Gi")))
 				Expect(resources.Limits[corev1.ResourceCPU]).Should(Equal(resource.MustParse("1")))
 				Expect(resources.Limits[corev1.ResourceMemory]).Should(Equal(resource.MustParse("4Gi")))
+
+				By("Ensuring that TurboOverridesTotal is incremented")
+				Expect(testutil.ToFloat64(metrics.TurboOverridesTotal.WithLabelValues(namespaceName, "Deployment", workloadName))).Should(Equal(float64(2)))
 			})
 
 			It("should let Turbonomic make further updates to resources", func() {
@@ -154,6 +165,8 @@ var _ = Describe("WorkloadResourcesMutator webhook", func() {
 				Expect(resources.Limits[corev1.ResourceCPU]).Should(Equal(resource.MustParse("600m")))
 				Expect(resources.Limits[corev1.ResourceMemory]).Should(Equal(resource.MustParse("2Gi")))
 
+				By("Ensuring that TurboOverridesTotal is NOT incremented")
+				Expect(testutil.ToFloat64(metrics.TurboOverridesTotal.WithLabelValues(namespaceName, "Deployment", workloadName))).Should(Equal(float64(2)))
 			})
 
 			It("should NOT override resources when owner changed turbo.ibm.com/override annotation to false", func() {
@@ -183,6 +196,9 @@ var _ = Describe("WorkloadResourcesMutator webhook", func() {
 				Expect(resources.Requests[corev1.ResourceMemory]).Should(Equal(resource.MustParse("10Gi")))
 				Expect(resources.Limits[corev1.ResourceCPU]).Should(Equal(resource.MustParse("8")))
 				Expect(resources.Limits[corev1.ResourceMemory]).Should(Equal(resource.MustParse("20Gi")))
+
+				By("Ensuring that TurboOverridesTotal is NOT incremented")
+				Expect(testutil.ToFloat64(metrics.TurboOverridesTotal.WithLabelValues(namespaceName, "Deployment", workloadName))).Should(Equal(float64(2)))
 			})
 
 		})

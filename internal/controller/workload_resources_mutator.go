@@ -29,6 +29,7 @@ import (
 
 	// "sigs.k8s.io/controller-runtime/pkg/runtime/inject"
 
+	"github.com/RedHatOfficial/turbonomic-companion-operator/internal/metrics"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
@@ -142,6 +143,7 @@ func (a *WorkloadResourcesMutator) Handle(ctx context.Context, req admission.Req
 				return admission.Errored(http.StatusInternalServerError, err)
 			}
 			log.Info("Successfully overrode compute resources")
+			metrics.TurboOverridesTotal.WithLabelValues(req.Namespace, req.Kind.Kind, req.Name).Inc()
 			return admission.PatchResponseFromRaw(req.Object.Raw, marshaledObj)
 		}
 	}

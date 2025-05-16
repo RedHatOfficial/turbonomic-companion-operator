@@ -49,6 +49,19 @@ If you're managing your workloads using ArgoCD, you need to do 2 things:
 
     You may wonder if it's not easier to just remove the compute resources from your Source of Truth instead. Perhaps it is. The advantage of having compute resources defined in the Source of Truth is that they will be used as defaults during initial workload creation (or re-creation from scratch, e.g. recovery). Turbonomic will optimize compute resources only for workloads which run for some time and generated enough utilization history.
 
+## Metrics
+
+### turbonomic_companion_operator_turbo_override_total
+
+Dimensions:
+
+* workload_namespace
+* workload_kind
+* workload_name
+
+A counter indicating how many times the webhook prevented an update to compute resources on a given workload to keep the last recommendation from Turbonomic effective. If this is happening frequently (many times an hour), then you likely have a disagreement between the webhook and another agent trying to update compute resources. See 'Continuous reconciliation with ArgoCD' section above for details on one particular scenario.
+
+
 ## Implementation
 
 Mutating webhook with logic following the activity diagram below:
