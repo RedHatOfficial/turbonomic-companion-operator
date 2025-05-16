@@ -62,9 +62,11 @@ func main() {
 	var secureMetrics bool
 	var enableHTTP2 bool
 	var tlsOpts []func(*tls.Config)
+	var certPath string
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
+	flag.StringVar(&certPath, "cert-path", "/tmp/k8s-webhook-server/serving-certs", "Directory where certificate and key can be found (tls.crt and tls.key). Used by both webhook and metrics endpoints.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
@@ -98,7 +100,8 @@ func main() {
 		tlsOpts = append(tlsOpts, disableHTTP2)
 	}
 
-	tlsOpts = addCert(tlsOpts)
+	// /metrics endpoint will use the same Service and certificate as the webhook endpoint
+	tlsOpts = addCertPath(tlsOpts, certPath)
 
 	webhookServer := webhook.NewServer(webhook.Options{
 		TLSOpts: tlsOpts,
@@ -202,21 +205,20 @@ func BoolEnvVar(varName string, defaultValue bool) bool {
 }
 
 // Needed to serve metrics using the same cert as the webhook endpoint
-func addCert(tlsOpts []func(*tls.Config)) []func(*tls.Config) {
-	metricsCertPath := "/tmp/k8s-webhook-server/serving-certs"
-	setupLog.Info("Initializing metrics certificate watcher using provided certificates", "metrics-cert-path", metricsCertPath)
+func addCertPath(tlsOpts []func(*tls.Config), certPath string) []func(*tls.Config) {
+	setupLog.Info("Initializing certificate watcher using provided certificates", "certPath", certPath)
 
 	var err error
-	metricsCertWatcher, err := certwatcher.New(
-		filepath.Join(metricsCertPath, "tls.crt"),
-		filepath.Join(metricsCertPath, "tls.key"),
+	certWatcher, err := certwatcher.New(
+		filepath.Join(certPath, "tls.crt"),
+		filepath.Join(certPath, "tls.key"),
 	)
 	if err != nil {
-		setupLog.Error(err, "to initialize metrics certificate watcher", "error", err)
+		setupLog.Error(err, "to initialize certificate watcher", "error", err)
 		os.Exit(1)
 	}
 
 	return append(tlsOpts, func(config *tls.Config) {
-		config.GetCertificate = metricsCertWatcher.GetCertificate
+		config.GetCertificate = certWatcher.GetCertificate
 	})
 }
