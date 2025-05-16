@@ -105,7 +105,11 @@ func (a *WorkloadResourcesMutator) Handle(ctx context.Context, req admission.Req
 	if req.UserInfo.Username == turboSA {
 		log.V(3).Info("Turbonomic is making this change")
 
-		logResourcesByContainer([]string{req.Namespace, req.Kind.Kind, req.Name}, incomingObject, &log)
+		// saving metrics on Turbonomic resource recommendations for each container
+		// WARNING: the webhook has no way of knowing if the action was executed successfully or not,
+		// so it tracks Turbo attempts to change resources rather than effective/successful changes
+		// TODO: tracking actions belongs to kubeturbo really, as kubeturbo has all the context
+		trackResourcesByContainer([]string{req.Namespace, req.Kind.Kind, req.Name}, incomingObject, &log)
 
 		if _, exists := annotations[managedAnnotation]; !exists {
 			annotations[managedAnnotation] = "true"
@@ -220,7 +224,7 @@ func isArgoCDManagedResource(labels map[string]string, annotations map[string]st
 }
 
 // log compute resources recommended by Turbonomic
-func logResourcesByContainer(workloadDimensions []string, source *unstructured.Unstructured, log *logr.Logger) error {
+func trackResourcesByContainer(workloadDimensions []string, source *unstructured.Unstructured, log *logr.Logger) error {
 	srcContainers, found, err := unstructured.NestedSlice(source.Object, "spec", "template", "spec", "containers")
 	if err != nil || !found {
 		// this should never happen - containers need to be there
