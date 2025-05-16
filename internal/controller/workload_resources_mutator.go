@@ -24,6 +24,7 @@ import (
 	"strings"
 
 	"github.com/go-logr/logr"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -103,6 +104,8 @@ func (a *WorkloadResourcesMutator) Handle(ctx context.Context, req admission.Req
 
 	if req.UserInfo.Username == turboSA {
 		log.V(3).Info("Turbonomic is making this change")
+
+		logResourcesByContainer([]string{req.Namespace, req.Kind.Kind, req.Name}, incomingObject, &log)
 
 		if _, exists := annotations[managedAnnotation]; !exists {
 			annotations[managedAnnotation] = "true"
@@ -214,4 +217,51 @@ func isArgoCDManagedResource(labels map[string]string, annotations map[string]st
 		}
 	}
 	return false
+}
+
+// log compute resources recommended by Turbonomic
+func logResourcesByContainer(workloadDimensions []string, source *unstructured.Unstructured, log *logr.Logger) error {
+	srcContainers, found, err := unstructured.NestedSlice(source.Object, "spec", "template", "spec", "containers")
+	if err != nil || !found {
+		// this should never happen - containers need to be there
+		return fmt.Errorf("failed to retrieve containers from %s: %v", workloadDimensions, err)
+	}
+
+	// Create a map for quick lookup by container name
+	srcResourcesMap := make(map[string]interface{})
+	for _, container := range srcContainers {
+		if cMap, ok := container.(map[string]interface{}); ok {
+			name, _, _ := unstructured.NestedString(cMap, "name")
+			if res, found, _ := unstructured.NestedMap(cMap, "resources"); found {
+				srcResourcesMap[name] = res
+			}
+		}
+	}
+
+	for containerName, resources := range srcResourcesMap {
+		dimensions := append(workloadDimensions, containerName)
+
+		if limits_cpu, _ := getParsedResource(resources.(map[string]interface{}), log, "limits", "cpu"); limits_cpu != nil {
+			metrics.TurboRecommendedLimitCpuGauge.WithLabelValues(dimensions...).Set(float64(limits_cpu.MilliValue()))
+		}
+
+	}
+
+	return nil
+}
+
+func getParsedResource(resources map[string]interface{}, log *logr.Logger, resourceType string, kind string) (*resource.Quantity, error) {
+	value_str, found, err := unstructured.NestedString(resources, resourceType, kind)
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve %s/%s: %v", resourceType, kind, err)
+	}
+	if found {
+		value, err := resource.ParseQuantity(value_str)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse quantity %s/%s: %v", resourceType, kind, err)
+		}
+		return &value, nil
+	}
+
+	return nil, nil
 }
