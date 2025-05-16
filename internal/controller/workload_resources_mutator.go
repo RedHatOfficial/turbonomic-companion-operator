@@ -241,8 +241,20 @@ func logResourcesByContainer(workloadDimensions []string, source *unstructured.U
 	for containerName, resources := range srcResourcesMap {
 		dimensions := append(workloadDimensions, containerName)
 
+		if requests_cpu, _ := getParsedResource(resources.(map[string]interface{}), log, "requests", "cpu"); requests_cpu != nil {
+			metrics.TurboRecommendedRequestCpuGauge.WithLabelValues(dimensions...).Set(float64(requests_cpu.MilliValue()))
+		}
+
 		if limits_cpu, _ := getParsedResource(resources.(map[string]interface{}), log, "limits", "cpu"); limits_cpu != nil {
 			metrics.TurboRecommendedLimitCpuGauge.WithLabelValues(dimensions...).Set(float64(limits_cpu.MilliValue()))
+		}
+
+		if requests_memory, _ := getParsedResource(resources.(map[string]interface{}), log, "requests", "memory"); requests_memory != nil {
+			metrics.TurboRecommendedRequestMemoryGauge.WithLabelValues(dimensions...).Set(float64(requests_memory.Value()))
+		}
+
+		if limits_memory, _ := getParsedResource(resources.(map[string]interface{}), log, "limits", "memory"); limits_memory != nil {
+			metrics.TurboRecommendedLimitMemoryGauge.WithLabelValues(dimensions...).Set(float64(limits_memory.Value()))
 		}
 
 	}
