@@ -40,4 +40,8 @@ var (
 // RegisterMetrics registers custom metrics with the global Prometheus registry
 func RegisterMetrics() {
 	ctrmetrics.Registry.MustRegister(TurboOverridesTotal)
+	ctrmetrics.Registry.MustRegister(TurboRecommendedRequestCpuGauge)
+	ctrmetrics.Registry.MustRegister(TurboRecommendedRequestMemoryGauge)
+	ctrmetrics.Registry.MustRegister(TurboRecommendedLimitCpuGauge)
+	ctrmetrics.Registry.MustRegister(TurboRecommendedLimitMemoryGauge)
 }
