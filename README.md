@@ -30,7 +30,8 @@ Note that you cannot remove the `turbo.ibm.com/override` annotation. To release 
 
 If you're managing your workloads using ArgoCD, you need to do 2 things:
 
-1.  Ignore compute resources [tracked by ArgoCD](https://argo-cd.readthedocs.io/en/stable/user-guide/resource_tracking/) to prevent ArgoCD from marking the workload out of sync.
+1.  Set `IGNORED_ARGOCD` environment variable to `false` on this webhook process. By default, ArgoCD managed workloads do not have resources overridden, because ArgoCD application owner needs to take additional step (below) to avoid constant back and forth between ArgoCD / gitops and this webhook.
+2.  Ignore compute resources [tracked by ArgoCD](https://argo-cd.readthedocs.io/en/stable/user-guide/resource_tracking/) to prevent ArgoCD from marking the workload out of sync.
 
     ```yaml
     apiVersion: argoproj.io/v1alpha1
@@ -44,10 +45,6 @@ If you're managing your workloads using ArgoCD, you need to do 2 things:
     ```
 
     (see [diffing customization in ArgoCD documentation](https://argo-cd.readthedocs.io/en/stable/user-guide/diffing/))
-
-2.  Explicitly annotate your workload with `turbo.ibm.com/override: "true"` annotation (do this in your Source of Truth) to protect Turbonomic's changes when the workload is synced from the Source of Truth. This operator will not manage the annotation automatically in this case because it does not know if you performed the first step. If you didn't, it would keep ArgoCD (and itself) busy with constant attempts to update the workload.
-
-    You may wonder if it's not easier to just remove the compute resources from your Source of Truth instead. Perhaps it is. The advantage of having compute resources defined in the Source of Truth is that they will be used as defaults during initial workload creation (or re-creation from scratch, e.g. recovery). Turbonomic will optimize compute resources only for workloads which run for some time and generated enough utilization history.
 
 ## Metrics
 
