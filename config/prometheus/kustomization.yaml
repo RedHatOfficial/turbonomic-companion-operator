@@ -3,6 +3,7 @@ kind: Component
 
 resources:
 - monitor.yaml
+- rbac.yaml
 
 patches:
 - path: namespace.yaml
