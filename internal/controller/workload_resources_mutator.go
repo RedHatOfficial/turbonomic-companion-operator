@@ -35,7 +35,6 @@ import (
 )
 
 const (
-	turboSA           = "system:serviceaccount:turbonomic-operator-system:turbo-user"
 	managedAnnotation = "turbo.ibm.com/override"
 )
 

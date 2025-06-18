@@ -26,12 +26,13 @@ import (
 	"testing"
 	"time"
 
-	"go.uber.org/zap/zapcore"
-
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -44,61 +45,87 @@ import (
 
 // Define utility constants for object names and testing timeouts/durations and intervals.
 const (
-	timeout = time.Second * 10
+	// Webhook configuration
+	webhookPath = "/mutate-v1-obj"
 )
 
 // These tests use Ginkgo (BDD-style Go testing framework). Refer to
 // http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
 
-var cfg *rest.Config
-var k8sClient client.Client
-var k8sClientTurbo client.Client
-var testEnv *envtest.Environment
-var ctx context.Context
-var cancel context.CancelFunc
+var (
+	// Global test variables
+	cfg            *rest.Config
+	k8sClient      client.Client
+	k8sClientTurbo client.Client
+	testEnv        *envtest.Environment
+	ctx            context.Context
+	cancel         context.CancelFunc
+
+	// Test configuration
+	testConfig *TestConfig
+)
 
 func TestControllers(t *testing.T) {
 	RegisterFailHandler(Fail)
-
 	RunSpecs(t, "Controller Suite")
 }
 
 var _ = BeforeSuite(func() {
+	// Initialize test configuration from environment
+	testConfig = LoadTestConfigFromEnv()
 
+	// Validate configuration
+	Expect(testConfig.Validate()).To(Succeed())
+
+	// Parse command line flags
 	opts := zap.Options{
-		Development: true,
-		Level:       zapcore.Level(-10),
+		Development: testConfig.Development,
+		Level:       testConfig.LogLevel,
 	}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
 
-	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+	// Set up logging
+	testLogger := zap.New(zap.UseFlagOptions(&opts))
+	ctrl.SetLogger(testLogger)
 
 	By("bootstrapping test environment")
+	By("using configuration: " + testConfig.String())
+
+	// Configure test environment
 	testEnv = &envtest.Environment{
 		CRDDirectoryPaths: []string{filepath.Join("..", "..", "config", "crd", "bases")},
 		WebhookInstallOptions: envtest.WebhookInstallOptions{
 			Paths: []string{filepath.Join("..", "..", "config", "webhook")},
 		},
+		// Add additional configuration for better test isolation
+		UseExistingCluster: func() *bool {
+			val := false
+			return &val
+		}(),
+		AttachControlPlaneOutput: true,
 	}
 
+	// Start the test environment
 	var err error
-	// cfg is defined in this file globally.
 	cfg, err = testEnv.Start()
 	Expect(err).NotTo(HaveOccurred())
 	Expect(cfg).NotTo(BeNil())
 
+	// Create Turbonomic service account user for testing
 	turboUserInfo := envtest.User{Name: turboSA, Groups: []string{"system:masters"}}
 	turboUser, err := testEnv.AddUser(turboUserInfo, cfg)
 	Expect(err).NotTo(HaveOccurred())
 	turboCfg := turboUser.Config()
 
+	// Create Turbonomic client
 	k8sClientTurbo, err = client.New(turboCfg, client.Options{Scheme: scheme.Scheme})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(k8sClientTurbo).NotTo(BeNil())
 
 	//+kubebuilder:scaffold:scheme
 
+	// Set up webhook server
 	webhookInstallOptions := &testEnv.WebhookInstallOptions
 	webhookServer := webhook.NewServer(webhook.Options{
 		Host:    webhookInstallOptions.LocalServingHost,
@@ -106,6 +133,7 @@ var _ = BeforeSuite(func() {
 		CertDir: webhookInstallOptions.LocalServingCertDir,
 	})
 
+	// Create and configure manager
 	k8sManager, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme:         scheme.Scheme,
 		WebhookServer:  webhookServer,
@@ -113,30 +141,56 @@ var _ = BeforeSuite(func() {
 	})
 	Expect(err).ToNot(HaveOccurred())
 
+	// Set up context with cancellation
 	ctx, cancel = context.WithCancel(ctrl.SetupSignalHandler())
-	// Start
+
+	// Register webhook handler
+	hookServer := k8sManager.GetWebhookServer()
+	decoder := admission.NewDecoder(testEnv.Scheme)
+	hookServer.Register(webhookPath, &webhook.Admission{
+		Handler: &WorkloadResourcesMutator{
+			Client:                       k8sManager.GetClient(),
+			Log:                          ctrl.Log.WithName("mutatingwebhook").WithName("WorkloadResourcesMutator"),
+			Decoder:                      &decoder,
+			IgnoreArgoCDManagedResources: testConfig.IgnoreArgoCDResources,
+		}})
+
+	// Start manager in background
 	go func() {
 		defer GinkgoRecover()
-		hookServer := k8sManager.GetWebhookServer()
-		decoder := admission.NewDecoder(testEnv.Scheme)
-		hookServer.Register("/mutate-v1-obj", &webhook.Admission{
-			Handler: &WorkloadResourcesMutator{
-				Client:                       k8sManager.GetClient(),
-				Log:                          ctrl.Log.WithName("mutatingwebhook").WithName("WorkloadResourcesMutator"),
-				Decoder:                      &decoder,
-				IgnoreArgoCDManagedResources: true,
-			}})
 		err = k8sManager.Start(ctx)
 		Expect(err).ToNot(HaveOccurred(), "failed to run manager")
 	}()
 
-	// Create client
+	// Get client from manager
 	k8sClient = k8sManager.GetClient()
 	Expect(k8sClient).ToNot(BeNil())
 
-	// Wait for the webhook server to be ready
+	// Wait for webhook server to be ready
+	waitForWebhookServer(webhookInstallOptions)
+})
+
+var _ = AfterSuite(func() {
+	By("tearing down the test environment")
+
+	// Cancel context to stop manager
+	if cancel != nil {
+		cancel()
+	}
+
+	// Wait for manager to stop
+	Eventually(func() error {
+		return testEnv.Stop()
+	}, testConfig.CleanupTimeout, time.Second).ShouldNot(HaveOccurred())
+})
+
+// waitForWebhookServer waits for the webhook server to be ready
+func waitForWebhookServer(webhookInstallOptions *envtest.WebhookInstallOptions) {
+	By("waiting for webhook server to be ready")
+
 	dialer := &net.Dialer{Timeout: time.Second}
 	addrPort := fmt.Sprintf("%s:%d", webhookInstallOptions.LocalServingHost, webhookInstallOptions.LocalServingPort)
+
 	Eventually(func() error {
 		conn, err := tls.DialWithDialer(dialer, "tcp", addrPort, &tls.Config{InsecureSkipVerify: true})
 		if err != nil {
@@ -146,14 +200,81 @@ var _ = BeforeSuite(func() {
 			return err
 		}
 		return nil
-	}).Should(Succeed())
+	}, testConfig.WebhookReadyTimeout, time.Second).Should(Succeed())
+}
 
-})
+// Test utilities
 
-var _ = AfterSuite(func() {
-	By("tearing down the test environment")
-	cancel()
+// CreateTestNamespace creates a namespace for testing
+func CreateTestNamespace(name string) *corev1.Namespace {
+	ns := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+			Labels: map[string]string{
+				"turbo.ibm.com/override": "true",
+			},
+		},
+	}
+	Expect(k8sClient.Create(ctx, ns)).Should(Succeed())
+	return ns
+}
+
+// CleanupTestNamespace cleans up a test namespace
+func CleanupTestNamespace(name string) {
+	ns := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+		},
+	}
+	Expect(k8sClient.Delete(ctx, ns)).Should(Succeed())
+
+	// Wait for namespace to be deleted
 	Eventually(func() error {
-		return testEnv.Stop()
-	}, timeout, time.Second).ShouldNot(HaveOccurred())
-})
+		return k8sClient.Get(ctx, types.NamespacedName{Name: name}, ns)
+	}, testConfig.TestTimeout, time.Second).ShouldNot(Succeed())
+}
+
+// WaitForObject waits for an object to exist
+func WaitForObject(obj client.Object, timeout time.Duration) {
+	Eventually(func() error {
+		return k8sClient.Get(ctx, types.NamespacedName{
+			Name:      obj.GetName(),
+			Namespace: obj.GetNamespace(),
+		}, obj)
+	}, timeout, time.Second).Should(Succeed())
+}
+
+// WaitForObjectDeletion waits for an object to be deleted
+func WaitForObjectDeletion(obj client.Object, timeout time.Duration) {
+	Eventually(func() error {
+		return k8sClient.Get(ctx, types.NamespacedName{
+			Name:      obj.GetName(),
+			Namespace: obj.GetNamespace(),
+		}, obj)
+	}, timeout, time.Second).ShouldNot(Succeed())
+}
+
+// GetTestConfig returns the current test configuration
+func GetTestConfig() *TestConfig {
+	return testConfig
+}
+
+// SetTestConfig updates the test configuration
+func SetTestConfig(config *TestConfig) {
+	testConfig = config
+}
+
+// GetTestContext returns the test context
+func GetTestContext() context.Context {
+	return ctx
+}
+
+// GetTestClient returns the main test client
+func GetTestClient() client.Client {
+	return k8sClient
+}
+
+// GetTurboClient returns the Turbonomic test client
+func GetTurboClient() client.Client {
+	return k8sClientTurbo
+}
