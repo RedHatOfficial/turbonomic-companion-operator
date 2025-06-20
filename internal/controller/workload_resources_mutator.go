@@ -39,7 +39,7 @@ const (
 	managedAnnotation = "turbo.ibm.com/override"
 )
 
-// +kubebuilder:webhook:path=/mutate-v1-obj,admissionReviewVersions=v1,mutating=true,failurePolicy=Ignore,groups=apps,resources=deployments,verbs=update,versions=v1,name=workloadmutator.turbo.ibm.com,sideEffects=NoneOnDryRun
+// +kubebuilder:webhook:path=/mutate-v1-obj,admissionReviewVersions=v1,mutating=true,failurePolicy=Ignore,groups=apps,resources=deployments;statefulsets,verbs=update,versions=v1,name=workloadmutator.turbo.ibm.com,sideEffects=NoneOnDryRun
 type WorkloadResourcesMutator struct {
 	Client                       client.Client
 	Decoder                      *admission.Decoder

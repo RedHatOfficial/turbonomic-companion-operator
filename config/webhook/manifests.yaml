@@ -25,6 +25,7 @@ webhooks:
     - UPDATE
     resources:
     - deployments
+    - statefulsets
   - apiGroups:
     - apps.openshift.io
     apiVersions:
