@@ -72,6 +72,7 @@ func (a *WorkloadResourcesMutator) Handle(ctx context.Context, req admission.Req
 	incomingObject := &unstructured.Unstructured{}
 	err := (*a.Decoder).Decode(req, incomingObject)
 	if err != nil {
+		log.Error(err, "failed to decode incoming object")
 		return admission.Errored(http.StatusBadRequest, err)
 	}
 	log.V(3).Info("Decoded", "incomingObject", incomingObject, "annotations", incomingObject.GetAnnotations())
@@ -84,6 +85,7 @@ func (a *WorkloadResourcesMutator) Handle(ctx context.Context, req admission.Req
 	oldObject := &unstructured.Unstructured{}
 	err = (*a.Decoder).DecodeRaw(req.OldObject, oldObject)
 	if err != nil {
+		log.Error(err, "failed to decode old object")
 		return admission.Errored(http.StatusBadRequest, err)
 	}
 	log.V(3).Info("Decoded", "oldObject", oldObject, "annotations", oldObject.GetAnnotations())
@@ -118,6 +120,7 @@ func (a *WorkloadResourcesMutator) Handle(ctx context.Context, req admission.Req
 
 			marshaledObj, err := json.Marshal(incomingObject)
 			if err != nil {
+				log.Error(err, "failed to marshal incoming object")
 				return admission.Errored(http.StatusInternalServerError, err)
 			}
 			return admission.PatchResponseFromRaw(req.Object.Raw, marshaledObj)
@@ -142,11 +145,13 @@ func (a *WorkloadResourcesMutator) Handle(ctx context.Context, req admission.Req
 			log.V(3).Info("Overriding compute resources")
 			err = copyResourcesByContainer(oldObject, incomingObject, &log)
 			if err != nil {
+				log.Error(err, "Could not copy container resources")
 				return admission.Errored(http.StatusInternalServerError, err)
 			}
 
 			marshaledObj, err := json.Marshal(incomingObject)
 			if err != nil {
+				log.Error(err, "Could not marshall the incoming object")
 				return admission.Errored(http.StatusInternalServerError, err)
 			}
 			log.Info("Successfully overrode compute resources")
@@ -228,6 +233,7 @@ func trackResourcesByContainer(workloadDimensions []string, source *unstructured
 	srcContainers, found, err := unstructured.NestedSlice(source.Object, "spec", "template", "spec", "containers")
 	if err != nil || !found {
 		// this should never happen - containers need to be there
+		log.Error(err, "failed to retrieve containers from %s", workloadDimensions)
 		return fmt.Errorf("failed to retrieve containers from %s: %v", workloadDimensions, err)
 	}
 
@@ -271,11 +277,13 @@ func trackResourcesByContainer(workloadDimensions []string, source *unstructured
 func getParsedResource(resources map[string]interface{}, log *logr.Logger, resourceType string, kind string) (*resource.Quantity, error) {
 	value_str, found, err := unstructured.NestedString(resources, resourceType, kind)
 	if err != nil {
+		log.Error(err, "failed to retrieve %s/%s", resourceType, kind)
 		return nil, fmt.Errorf("failed to retrieve %s/%s: %v", resourceType, kind, err)
 	}
 	if found {
 		value, err := resource.ParseQuantity(value_str)
 		if err != nil {
+			log.Error(err, "failed to parse quantify %s/%s", resourceType, kind)
 			return nil, fmt.Errorf("failed to parse quantity %s/%s: %v", resourceType, kind, err)
 		}
 		return &value, nil
