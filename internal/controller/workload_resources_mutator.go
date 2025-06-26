@@ -75,7 +75,7 @@ func (a *WorkloadResourcesMutator) Handle(ctx context.Context, req admission.Req
 		log.Error(err, "failed to decode incoming object")
 		return admission.Errored(http.StatusBadRequest, err)
 	}
-	log.V(3).Info("Decoded", "incomingObject", incomingObject, "annotations", incomingObject.GetAnnotations())
+	log.V(4).Info("Decoded", "incomingObject", incomingObject, "annotations", incomingObject.GetAnnotations())
 	annotations := incomingObject.GetAnnotations()
 	if annotations == nil {
 		annotations = map[string]string{}
@@ -88,7 +88,7 @@ func (a *WorkloadResourcesMutator) Handle(ctx context.Context, req admission.Req
 		log.Error(err, "failed to decode old object")
 		return admission.Errored(http.StatusBadRequest, err)
 	}
-	log.V(3).Info("Decoded", "oldObject", oldObject, "annotations", oldObject.GetAnnotations())
+	log.V(4).Info("Decoded", "oldObject", oldObject, "annotations", oldObject.GetAnnotations())
 
 	oldObjectAnnotations := oldObject.GetAnnotations()
 	if oldObjectAnnotations == nil {
