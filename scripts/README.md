@@ -1,8 +1,8 @@
 # scripts
 
-## list-triggerless-dcs.py
+## list-dcs-without-config-trigger.py
 
-Lists DeploymentConfigs which do not have triggers defined. When Turbonomic updates such workloads, the changes are not automatically rolled out and rightsizing is not effective. This script can be used to force-roll such workloads.
+Lists DeploymentConfigs which do not have a config trigger defined. When Turbonomic updates such workloads, the changes are not automatically rolled out and rightsizing is not effective. This script can be used to force-roll such workloads.
 
 ## remove-override-from-ns.sh
 
