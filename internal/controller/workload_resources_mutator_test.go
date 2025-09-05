@@ -38,7 +38,7 @@ var _ = Describe("WorkloadResourcesMutator webhook", func() {
 
 	Describe("Workload", func() {
 
-		Context("has compute resources managed by Turbonomic and is otherwise managed by CI/CD", func() {
+		Context("has all compute resources managed by Turbonomic and is otherwise managed by CI/CD", func() {
 
 			const (
 				namespaceName = "resource-override-test"
@@ -91,12 +91,12 @@ var _ = Describe("WorkloadResourcesMutator webhook", func() {
 				resources.Limits[corev1.ResourceMemory] = resource.MustParse("4Gi")
 				Expect(k8sClientTurbo.Update(ctx, workload)).Should(Succeed())
 
-				By("Checking that turbo.ibm.com/override annotation is set to true")
+				By("Checking that turbo.ibm.com/override annotation is set based on what was changed")
 				Eventually(func() string {
 					Expect(k8sClient.Get(ctx, types.NamespacedName{Name: workloadName, Namespace: namespaceName}, workload)).Should(Succeed())
 
 					return workload.ObjectMeta.Annotations[managedAnnotation]
-				}).Should(Equal("true"))
+				}).Should(Equal("all")) // Turbonomic changed both CPU and memory in this test
 
 				By("Checking that compute resources changed to Turbonomic recommendation")
 				resources = workload.Spec.Template.Spec.Containers[0].Resources
@@ -139,7 +139,7 @@ var _ = Describe("WorkloadResourcesMutator webhook", func() {
 				}).Should(Equal("bar"))
 
 				By("Ensuring that resources defined earlier by Turbonomic did not change (owner changes dropped)")
-				Expect(workload.ObjectMeta.Annotations[managedAnnotation]).Should(Equal("true"))
+				Expect(workload.ObjectMeta.Annotations[managedAnnotation]).Should(Equal("all"))
 				resources = workload.Spec.Template.Spec.Containers[0].Resources
 				Expect(resources.Requests[corev1.ResourceCPU]).Should(Equal(resource.MustParse("500m")))
 				Expect(resources.Requests[corev1.ResourceMemory]).Should(Equal(resource.MustParse("2Gi")))
@@ -178,7 +178,7 @@ var _ = Describe("WorkloadResourcesMutator webhook", func() {
 
 					return workload.Spec.Template.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU]
 				}).Should(Equal(resource.MustParse("400m")))
-				Expect(workload.ObjectMeta.Annotations[managedAnnotation]).Should(Equal("true"))
+				Expect(workload.ObjectMeta.Annotations[managedAnnotation]).Should(Equal("all"))
 				Expect(resources.Requests[corev1.ResourceMemory]).Should(Equal(resource.MustParse("1536Mi")))
 				Expect(resources.Limits[corev1.ResourceCPU]).Should(Equal(resource.MustParse("600m")))
 				Expect(resources.Limits[corev1.ResourceMemory]).Should(Equal(resource.MustParse("2Gi")))
@@ -230,6 +230,141 @@ var _ = Describe("WorkloadResourcesMutator webhook", func() {
 
 		})
 
+	})
+
+	Context("has cpu compute resources managed by Turbonomic and is otherwise managed by CI/CD", func() {
+		const (
+			namespaceName = "selective-management-test"
+			workloadName  = "test-workload"
+		)
+
+		It("should start with 'cpu' mode when Turbonomic initially updates only CPU, allowing CI/CD to manage memory", func() {
+			By("Creating a Namespace")
+			ns := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: namespaceName,
+					Labels: map[string]string{
+						"turbo.ibm.com/override": "true",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, ns)).Should(Succeed())
+
+			By("Creating a fresh workload")
+			deployment := createDeployment(workloadName, namespaceName)
+			Expect(k8sClient.Create(ctx, deployment)).Should(Succeed())
+
+			By("Turbonomic makes initial update to CPU only")
+			workload := &appsv1.Deployment{}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, types.NamespacedName{Name: workloadName, Namespace: namespaceName}, workload)
+			}).Should(Succeed())
+			workload.Spec.Template.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU] = resource.MustParse("750m") // Was 1
+			workload.Spec.Template.Spec.Containers[0].Resources.Limits[corev1.ResourceCPU] = resource.MustParse("1500m")  // Was 2
+			Expect(k8sClientTurbo.Update(ctx, workload)).Should(Succeed())
+
+			By("Verifying override annotation is set to 'cpu'")
+			Eventually(func() string {
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: workloadName, Namespace: namespaceName}, workload)).Should(Succeed())
+				return workload.ObjectMeta.Annotations[managedAnnotation]
+			}).Should(Equal("cpu"))
+
+			By("CI/CD agent can update memory but not CPU")
+			workload.Spec.Template.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU] = resource.MustParse("2")      // Should be overridden back
+			workload.Spec.Template.Spec.Containers[0].Resources.Requests[corev1.ResourceMemory] = resource.MustParse("4Gi") // Should be preserved
+			workload.Spec.Template.Spec.Containers[0].Resources.Limits[corev1.ResourceCPU] = resource.MustParse("4")        // Should be overridden back
+			workload.Spec.Template.Spec.Containers[0].Resources.Limits[corev1.ResourceMemory] = resource.MustParse("8Gi")   // Should be preserved
+			Expect(k8sClient.Update(ctx, workload)).Should(Succeed())
+
+			By("Verifying CPU is overridden back to Turbonomic values but memory changes are preserved")
+			Eventually(func() bool {
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: workloadName, Namespace: namespaceName}, workload)).Should(Succeed())
+				resources := workload.Spec.Template.Spec.Containers[0].Resources
+
+				// CPU should be overridden back to Turbonomic values
+				cpuRequestOK := resources.Requests[corev1.ResourceCPU].Equal(resource.MustParse("750m"))
+				cpuLimitOK := resources.Limits[corev1.ResourceCPU].Equal(resource.MustParse("1500m"))
+
+				// Memory should preserve CI/CD changes
+				memRequestOK := resources.Requests[corev1.ResourceMemory].Equal(resource.MustParse("4Gi"))
+				memLimitOK := resources.Limits[corev1.ResourceMemory].Equal(resource.MustParse("8Gi"))
+
+				return cpuRequestOK && cpuLimitOK && memRequestOK && memLimitOK
+			}).Should(BeTrue())
+		})
+
+		It("should upgrade to 'all' mode when Turbonomic later updates memory, preventing CI/CD from managing either resource", func() {
+			By("Turbonomic now updates memory resources as well")
+			workload := &appsv1.Deployment{}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, types.NamespacedName{Name: workloadName, Namespace: namespaceName}, workload)
+			}).Should(Succeed())
+			workload.Spec.Template.Spec.Containers[0].Resources.Requests[corev1.ResourceMemory] = resource.MustParse("512Mi") // Memory change triggers upgrade
+			Expect(k8sClientTurbo.Update(ctx, workload)).Should(Succeed())
+
+			By("Verifying override annotation is upgraded to 'all'")
+			Eventually(func() string {
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: workloadName, Namespace: namespaceName}, workload)).Should(Succeed())
+				return workload.ObjectMeta.Annotations[managedAnnotation]
+			}).Should(Equal("all"))
+
+			By("CI/CD agent can no longer update either CPU or memory")
+			workload.Spec.Template.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU] = resource.MustParse("2")       // Should be overridden back
+			workload.Spec.Template.Spec.Containers[0].Resources.Requests[corev1.ResourceMemory] = resource.MustParse("16Gi") // Should be overridden back
+			workload.Spec.Template.Spec.Containers[0].Resources.Limits[corev1.ResourceCPU] = resource.MustParse("4")         // Should be overridden back
+			workload.Spec.Template.Spec.Containers[0].Resources.Limits[corev1.ResourceMemory] = resource.MustParse("32Gi")   // Should be overridden back
+			Expect(k8sClient.Update(ctx, workload)).Should(Succeed())
+
+			By("Verifying both CPU and memory are overridden back to Turbonomic values")
+			Eventually(func() bool {
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: workloadName, Namespace: namespaceName}, workload)).Should(Succeed())
+				resources := workload.Spec.Template.Spec.Containers[0].Resources
+
+				// Both CPU and memory should be overridden back to Turbonomic values
+				cpuRequestOK := resources.Requests[corev1.ResourceCPU].Equal(resource.MustParse("750m"))
+				cpuLimitOK := resources.Limits[corev1.ResourceCPU].Equal(resource.MustParse("1500m"))
+				memRequestOK := resources.Requests[corev1.ResourceMemory].Equal(resource.MustParse("512Mi"))
+				memLimitOK := resources.Limits[corev1.ResourceMemory].Equal(resource.MustParse("8Gi")) // Previous limit preserved from earlier
+
+				return cpuRequestOK && cpuLimitOK && memRequestOK && memLimitOK
+			}).Should(BeTrue())
+		})
+
+		It("should stay in 'all' mode when Turbonomic makes subsequent CPU-only updates (no downgrade)", func() {
+			By("Turbonomic makes another update to CPU only")
+			workload := &appsv1.Deployment{}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, types.NamespacedName{Name: workloadName, Namespace: namespaceName}, workload)
+			}).Should(Succeed())
+			workload.Spec.Template.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU] = resource.MustParse("500m") // CPU-only change
+			workload.Spec.Template.Spec.Containers[0].Resources.Limits[corev1.ResourceCPU] = resource.MustParse("1")      // CPU-only change
+			Expect(k8sClientTurbo.Update(ctx, workload)).Should(Succeed())
+
+			By("Verifying override annotation remains 'all' (no downgrade)")
+			Eventually(func() string {
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: workloadName, Namespace: namespaceName}, workload)).Should(Succeed())
+				return workload.ObjectMeta.Annotations[managedAnnotation]
+			}).Should(Equal("all"))
+
+			By("Verifying CI/CD still cannot update either CPU or memory")
+			workload.Spec.Template.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU] = resource.MustParse("2")       // Should be overridden back
+			workload.Spec.Template.Spec.Containers[0].Resources.Requests[corev1.ResourceMemory] = resource.MustParse("16Gi") // Should be overridden back
+			Expect(k8sClient.Update(ctx, workload)).Should(Succeed())
+
+			By("Verifying both resources are still managed by Turbonomic")
+			Eventually(func() bool {
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: workloadName, Namespace: namespaceName}, workload)).Should(Succeed())
+				resources := workload.Spec.Template.Spec.Containers[0].Resources
+
+				// Both CPU and memory should be overridden back to Turbonomic values
+				cpuRequestOK := resources.Requests[corev1.ResourceCPU].Equal(resource.MustParse("500m")) // Latest Turbonomic value
+				cpuLimitOK := resources.Limits[corev1.ResourceCPU].Equal(resource.MustParse("1"))        // Latest Turbonomic value
+				memRequestOK := resources.Requests[corev1.ResourceMemory].Equal(resource.MustParse("512Mi"))
+				memLimitOK := resources.Limits[corev1.ResourceMemory].Equal(resource.MustParse("8Gi"))
+
+				return cpuRequestOK && cpuLimitOK && memRequestOK && memLimitOK
+			}).Should(BeTrue())
+		})
 	})
 
 })

@@ -10,12 +10,12 @@ fi
 
 KINDS=("deployment" "deploymentconfig" "statefulset")
 
-echo "# Step 1: Set annotation to false if it was true"
+echo "# Step 1: Set annotation to false if it exists and isn't false"
 for KIND in "${KINDS[@]}"; do
   oc get "$KIND" -n "$NAMESPACE" -o json | jq -r \
     --arg kind "$KIND" --arg ns "$NAMESPACE" \
     '.items[] 
-     | select(.metadata.annotations["turbo.ibm.com/override"] == "true") 
+     | select(.metadata.annotations["turbo.ibm.com/override"] and .metadata.annotations["turbo.ibm.com/override"] != "false")
      | "oc annotate \($kind) \(.metadata.name) -n \($ns) turbo.ibm.com/override=false --overwrite"' 
 done
 

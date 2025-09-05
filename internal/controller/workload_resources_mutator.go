@@ -38,6 +38,60 @@ const (
 	managedAnnotation = "turbo.ibm.com/override"
 )
 
+// Resource management modes
+const (
+	ManagementModeAll   = "all"   // Manage both CPU and memory (same as "true")
+	ManagementModeTrue  = "true"  // Manage both CPU and memory (legacy)
+	ManagementModeCPU   = "cpu"   // Manage CPU only, allow others to manage memory
+	ManagementModeFalse = "false" // Explicitly disable management
+)
+
+// isWorkloadManaged checks if the workload is managed by Turbonomic
+// Returns true for values: "true", "all", "cpu"
+// Returns false for values: "false", any other value, or when annotation is missing
+func isWorkloadManaged(annotations map[string]string) bool {
+	if annotations == nil {
+		return false
+	}
+	value, exists := annotations[managedAnnotation]
+	if !exists {
+		return false
+	}
+	// Explicitly handle the "false" case and any other invalid values
+	if value == ManagementModeFalse {
+		return false
+	}
+	return true
+}
+
+// getManagementMode returns the management mode for the resource
+func getManagementMode(annotations map[string]string) string {
+	if annotations == nil {
+		return ""
+	}
+	value, exists := annotations[managedAnnotation]
+	if !exists {
+		return ""
+	}
+	// Normalize "true" to "all" for consistency
+	if value == ManagementModeTrue {
+		return ManagementModeAll
+	}
+	return value
+}
+
+// shouldManageResource checks if a specific resource type should be managed
+func shouldManageResource(managementMode, resourceType string) bool {
+	switch managementMode {
+	case ManagementModeAll:
+		return true
+	case ManagementModeCPU:
+		return resourceType == "cpu"
+	default:
+		return false
+	}
+}
+
 // +kubebuilder:webhook:path=/mutate-v1-obj,admissionReviewVersions=v1,mutating=true,failurePolicy=Ignore,groups=apps,resources=deployments;statefulsets,verbs=update,versions=v1,name=workloadmutator.turbo.ibm.com,sideEffects=NoneOnDryRun
 type WorkloadResourcesMutator struct {
 	Client  client.Client
@@ -64,7 +118,7 @@ func (a *WorkloadResourcesMutator) Handle(ctx context.Context, req admission.Req
 	log.V(5).Info("About to decode the request", "Request", req)
 
 	if a.Decoder == nil {
-		return admission.Errored(http.StatusInternalServerError, errors.New("Decoder not initialized, webhook was not setup correctly!"))
+		return admission.Errored(http.StatusInternalServerError, errors.New("decoder not initialized, webhook was not setup correctly"))
 	}
 
 	incomingObject := &unstructured.Unstructured{}
@@ -103,9 +157,13 @@ func (a *WorkloadResourcesMutator) Handle(ctx context.Context, req admission.Req
 		trackResourcesByContainer([]string{req.Namespace, req.Kind.Kind, req.Name}, incomingObject, &log)
 
 		if _, exists := annotations[managedAnnotation]; !exists {
-			annotations[managedAnnotation] = "true"
+			// Analyze what resources Turbonomic is changing to set the appropriate mode
+			changedResources := analyzeResourceChanges(oldObject, incomingObject, &log)
+			newMode := determineManagementMode("", changedResources)
+
+			annotations[managedAnnotation] = newMode
 			incomingObject.SetAnnotations(annotations)
-			log.Info("Annotated incoming object as managed by Turbonomic")
+			log.Info("Annotated incoming object as managed by Turbonomic", "mode", newMode, "changedResources", changedResources)
 
 			marshaledObj, err := json.Marshal(incomingObject)
 			if err != nil {
@@ -113,26 +171,53 @@ func (a *WorkloadResourcesMutator) Handle(ctx context.Context, req admission.Req
 				return admission.Errored(http.StatusInternalServerError, err)
 			}
 			return admission.PatchResponseFromRaw(req.Object.Raw, marshaledObj)
+		} else {
+			// Update existing annotation based on what Turbonomic is changing
+			currentMode := getManagementMode(annotations)
+			changedResources := analyzeResourceChanges(oldObject, incomingObject, &log)
+			newMode := determineManagementMode(currentMode, changedResources)
+
+			if newMode != currentMode {
+				annotations[managedAnnotation] = newMode
+				incomingObject.SetAnnotations(annotations)
+				log.Info("Updated management mode based on Turbonomic changes", "oldMode", currentMode, "newMode", newMode, "changedResources", changedResources)
+
+				marshaledObj, err := json.Marshal(incomingObject)
+				if err != nil {
+					log.Error(err, "failed to marshal incoming object")
+					return admission.Errored(http.StatusInternalServerError, err)
+				}
+				return admission.PatchResponseFromRaw(req.Object.Raw, marshaledObj)
+			}
 		}
 
 	} else {
 		log.V(3).Info("Turbonomic is NOT making this change")
 
 		if value, exists := annotations[managedAnnotation]; exists {
-			if value != "true" {
+			if !isWorkloadManaged(annotations) {
 				log.V(3).Info("This resource is explicitly annotated to NOT do the override", managedAnnotation, value)
 				return admission.Allowed("")
 			}
 		}
 
-		if oldObjectAnnotations[managedAnnotation] == "true" || annotations[managedAnnotation] == "true" {
-			log.V(3).Info("This is a Turbonomic managed object. Override resources.")
+		if isWorkloadManaged(oldObjectAnnotations) || isWorkloadManaged(annotations) {
+			// Determine the management mode to use
+			managementMode := getManagementMode(annotations)
+			if managementMode == "" {
+				managementMode = getManagementMode(oldObjectAnnotations)
+			}
 
-			annotations[managedAnnotation] = "true"
+			log.V(3).Info("This is a Turbonomic managed object. Override resources.", "managementMode", managementMode)
+
+			// Preserve the original management mode (don't overwrite "cpu" with "true")
+			if managementMode != "" {
+				annotations[managedAnnotation] = managementMode
+			}
 			incomingObject.SetAnnotations(annotations)
 
-			log.V(3).Info("Overriding compute resources")
-			err = copyResourcesByContainer(oldObject, incomingObject, &log)
+			log.V(3).Info("Overriding compute resources", "mode", managementMode)
+			err = copyResourcesByContainerSelective(oldObject, incomingObject, managementMode, &log)
 			if err != nil {
 				log.Error(err, "Could not copy container resources")
 				return admission.Errored(http.StatusInternalServerError, err)
@@ -152,9 +237,8 @@ func (a *WorkloadResourcesMutator) Handle(ctx context.Context, req admission.Req
 	return admission.Allowed("")
 }
 
-// copyResourcesByContainer copies the "resources" field from source to target Unstructured objects.
-// courtesy of ChatGPT
-func copyResourcesByContainer(source, target *unstructured.Unstructured, log *logr.Logger) error {
+// copyResourcesByContainerSelective copies selective resource fields from source to target based on management mode
+func copyResourcesByContainerSelective(source, target *unstructured.Unstructured, managementMode string, log *logr.Logger) error {
 	srcContainers, found, err := unstructured.NestedSlice(source.Object, "spec", "template", "spec", "containers")
 	if err != nil || !found {
 		return fmt.Errorf("failed to retrieve containers from source: %v", err)
@@ -176,13 +260,26 @@ func copyResourcesByContainer(source, target *unstructured.Unstructured, log *lo
 		}
 	}
 
-	// Update target containers with source resources
+	// Update target containers with selective source resources
 	for i, container := range tgtContainers {
 		if cMap, ok := container.(map[string]interface{}); ok {
 			name, _, _ := unstructured.NestedString(cMap, "name")
-			if res, found := srcResourcesMap[name]; found {
-				log.V(1).Info("Overriding container resources", "containerName", name, "resources", res)
-				_ = unstructured.SetNestedMap(cMap, res.(map[string]interface{}), "resources")
+			if srcRes, found := srcResourcesMap[name]; found {
+				srcResourcesMap := srcRes.(map[string]interface{})
+
+				// Get or create the target container's resources
+				tgtRes, _, _ := unstructured.NestedMap(cMap, "resources")
+				if tgtRes == nil {
+					tgtRes = make(map[string]interface{})
+				}
+
+				// Copy resources selectively based on management mode
+				if err := copySelectiveResources(srcResourcesMap, tgtRes, managementMode, log, name); err != nil {
+					return fmt.Errorf("failed to copy selective resources for container %s: %v", name, err)
+				}
+
+				log.V(1).Info("Overriding container resources selectively", "containerName", name, "mode", managementMode, "resources", tgtRes)
+				_ = unstructured.SetNestedMap(cMap, tgtRes, "resources")
 				tgtContainers[i] = cMap
 			}
 		}
@@ -193,9 +290,150 @@ func copyResourcesByContainer(source, target *unstructured.Unstructured, log *lo
 	log.V(5).Info("Updated containers", "containers", tgtContainers)
 	if err != nil {
 		return err
-	} else {
-		return nil
 	}
+	return nil
+}
+
+// copySelectiveResources copies specific resource types based on management mode
+func copySelectiveResources(src, tgt map[string]interface{}, managementMode string, log *logr.Logger, containerName string) error {
+	resourceCategories := []string{"requests", "limits"}
+	resourceTypes := []string{"cpu", "memory"}
+
+	for _, category := range resourceCategories {
+		srcCategory, srcCategoryExists, _ := unstructured.NestedMap(src, category)
+		if !srcCategoryExists {
+			continue
+		}
+
+		// Get or create target category
+		tgtCategory, _, _ := unstructured.NestedMap(tgt, category)
+		if tgtCategory == nil {
+			tgtCategory = make(map[string]interface{})
+		}
+
+		for _, resourceType := range resourceTypes {
+			if shouldManageResource(managementMode, resourceType) {
+				if value, exists := srcCategory[resourceType]; exists {
+					tgtCategory[resourceType] = value
+					log.V(2).Info("Copied resource", "container", containerName, "category", category, "type", resourceType, "value", value)
+				}
+			}
+		}
+
+		// Only set the category if we copied something to it
+		if len(tgtCategory) > 0 {
+			_ = unstructured.SetNestedMap(tgt, tgtCategory, category)
+		}
+	}
+
+	return nil
+}
+
+// ResourceChangeInfo tracks what types of resources have changed
+type ResourceChangeInfo struct {
+	CPUChanged    bool
+	MemoryChanged bool
+}
+
+// analyzeResourceChanges compares old and new objects to determine what resources Turbonomic changed
+func analyzeResourceChanges(oldObject, newObject *unstructured.Unstructured, log *logr.Logger) ResourceChangeInfo {
+	changes := ResourceChangeInfo{}
+
+	oldContainers, oldFound, err := unstructured.NestedSlice(oldObject.Object, "spec", "template", "spec", "containers")
+	if err != nil || !oldFound {
+		log.V(3).Info("Could not retrieve old containers for change analysis", "error", err)
+		return changes
+	}
+
+	newContainers, newFound, err := unstructured.NestedSlice(newObject.Object, "spec", "template", "spec", "containers")
+	if err != nil || !newFound {
+		log.V(3).Info("Could not retrieve new containers for change analysis", "error", err)
+		return changes
+	}
+
+	// Create maps for easy lookup by container name
+	oldResourcesMap := createContainerResourceMap(oldContainers)
+	newResourcesMap := createContainerResourceMap(newContainers)
+
+	// Compare resources for each container
+	for containerName, newResources := range newResourcesMap {
+		oldResources, exists := oldResourcesMap[containerName]
+		if !exists {
+			// New container - assume all resources changed
+			changes.CPUChanged = true
+			changes.MemoryChanged = true
+			continue
+		}
+
+		// Check each resource category and type
+		for _, category := range []string{"requests", "limits"} {
+			for _, resourceType := range []string{"cpu", "memory"} {
+				oldValue := getResourceValue(oldResources, category, resourceType)
+				newValue := getResourceValue(newResources, category, resourceType)
+
+				if oldValue != newValue {
+					log.V(2).Info("Resource change detected", "container", containerName, "category", category, "type", resourceType, "old", oldValue, "new", newValue)
+					if resourceType == "cpu" {
+						changes.CPUChanged = true
+					} else if resourceType == "memory" {
+						changes.MemoryChanged = true
+					}
+				}
+			}
+		}
+	}
+
+	return changes
+}
+
+// createContainerResourceMap creates a map of container name to resources
+func createContainerResourceMap(containers []interface{}) map[string]interface{} {
+	resourcesMap := make(map[string]interface{})
+	for _, container := range containers {
+		if cMap, ok := container.(map[string]interface{}); ok {
+			name, _, _ := unstructured.NestedString(cMap, "name")
+			if res, found, _ := unstructured.NestedMap(cMap, "resources"); found {
+				resourcesMap[name] = res
+			}
+		}
+	}
+	return resourcesMap
+}
+
+// getResourceValue extracts a specific resource value as a string
+func getResourceValue(resources interface{}, category, resourceType string) string {
+	if resMap, ok := resources.(map[string]interface{}); ok {
+		if categoryMap, catExists, _ := unstructured.NestedMap(resMap, category); catExists {
+			if value, exists := categoryMap[resourceType]; exists {
+				return fmt.Sprintf("%v", value)
+			}
+		}
+	}
+	return ""
+}
+
+// determineManagementMode determines the appropriate management mode based on current mode and changes
+func determineManagementMode(currentMode string, changes ResourceChangeInfo) string {
+	// If memory was changed, always upgrade to "all"
+	if changes.MemoryChanged {
+		return ManagementModeAll
+	}
+
+	// If only CPU changed
+	if changes.CPUChanged {
+		// If we're already managing all resources, keep it that way
+		if currentMode == ManagementModeAll || currentMode == ManagementModeTrue {
+			return ManagementModeAll
+		}
+		// Otherwise, set to CPU-only mode
+		return ManagementModeCPU
+	}
+
+	// No resource changes detected, keep current mode or default to CPU if empty
+	if currentMode == "" {
+		return ManagementModeCPU
+	}
+	return currentMode
 }
 
 // log compute resources recommended by Turbonomic
