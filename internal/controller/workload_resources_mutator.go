@@ -40,10 +40,9 @@ const (
 
 // +kubebuilder:webhook:path=/mutate-v1-obj,admissionReviewVersions=v1,mutating=true,failurePolicy=Ignore,groups=apps,resources=deployments;statefulsets,verbs=update,versions=v1,name=workloadmutator.turbo.ibm.com,sideEffects=NoneOnDryRun
 type WorkloadResourcesMutator struct {
-	Client                       client.Client
-	Decoder                      *admission.Decoder
-	Log                          logr.Logger
-	IgnoreArgoCDManagedResources bool
+	Client  client.Client
+	Decoder *admission.Decoder
+	Log     logr.Logger
 }
 
 // implements admission.Handler.
@@ -92,15 +91,6 @@ func (a *WorkloadResourcesMutator) Handle(ctx context.Context, req admission.Req
 	oldObjectAnnotations := oldObject.GetAnnotations()
 	if oldObjectAnnotations == nil {
 		oldObjectAnnotations = map[string]string{}
-	}
-
-	if a.IgnoreArgoCDManagedResources && isArgoCDManagedResource(incomingObject.GetLabels(), incomingObject.GetAnnotations()) {
-		if annotations[managedAnnotation] != "true" && oldObjectAnnotations[managedAnnotation] != "true" {
-			log.V(2).Info("Passing through the incoming object since it's managed by ArgoCD and IgnoreArgoCDManagedResources=true")
-			return admission.Allowed("")
-		} else {
-			log.V(2).Info("Processing this object, despite it being managed by ArgoCD and IgnoreArgoCDManagedResources=true, since it is explicitly annotated for override")
-		}
 	}
 
 	if req.UserInfo.Username == turboSA {
@@ -206,25 +196,6 @@ func copyResourcesByContainer(source, target *unstructured.Unstructured, log *lo
 	} else {
 		return nil
 	}
-}
-
-// https://argo-cd.readthedocs.io/en/stable/user-guide/annotations-and-labels/
-// https://argo-cd.readthedocs.io/en/stable/user-guide/resource_tracking/
-func isArgoCDManagedResource(labels map[string]string, annotations map[string]string) bool {
-	if labels != nil {
-		if _, exists := labels["app.kubernetes.io/instance"]; exists {
-			return true
-		}
-		if _, exists := labels["argocd.argoproj.io/instance"]; exists {
-			return true
-		}
-	}
-	if annotations != nil {
-		if _, exists := annotations["argocd.argoproj.io/tracking-id"]; exists {
-			return true
-		}
-	}
-	return false
 }
 
 // log compute resources recommended by Turbonomic

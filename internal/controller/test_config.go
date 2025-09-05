@@ -28,20 +28,19 @@ import (
 
 // TestConfig holds configuration for the test suite
 type TestConfig struct {
-	WebhookHost           string
-	WebhookPort           int
-	WebhookCertDir        string
-	TestTimeout           time.Duration
-	WebhookReadyTimeout   time.Duration
-	CleanupTimeout        time.Duration
-	LogLevel              zapcore.Level
-	Development           bool
-	IgnoreArgoCDResources bool
-	EnableMetrics         bool
-	EnableWebhookLogging  bool
-	TestNamespacePrefix   string
-	MaxTestRetries        int
-	RetryInterval         time.Duration
+	WebhookHost          string
+	WebhookPort          int
+	WebhookCertDir       string
+	TestTimeout          time.Duration
+	WebhookReadyTimeout  time.Duration
+	CleanupTimeout       time.Duration
+	LogLevel             zapcore.Level
+	Development          bool
+	EnableMetrics        bool
+	EnableWebhookLogging bool
+	TestNamespacePrefix  string
+	MaxTestRetries       int
+	RetryInterval        time.Duration
 }
 
 // Environment variable names
@@ -62,20 +61,19 @@ const (
 // DefaultTestConfig returns a default test configuration
 func DefaultTestConfig() *TestConfig {
 	return &TestConfig{
-		WebhookHost:           "localhost",
-		WebhookPort:           0,  // Will be set by envtest
-		WebhookCertDir:        "", // Will be set by envtest
-		TestTimeout:           time.Second * 30,
-		WebhookReadyTimeout:   time.Second * 10,
-		CleanupTimeout:        time.Second * 10,
-		LogLevel:              zapcore.Level(-10),
-		Development:           true,
-		IgnoreArgoCDResources: true,
-		EnableMetrics:         true,
-		EnableWebhookLogging:  true,
-		TestNamespacePrefix:   "turbo-test",
-		MaxTestRetries:        3,
-		RetryInterval:         time.Second * 2,
+		WebhookHost:          "localhost",
+		WebhookPort:          0,  // Will be set by envtest
+		WebhookCertDir:       "", // Will be set by envtest
+		TestTimeout:          time.Second * 30,
+		WebhookReadyTimeout:  time.Second * 10,
+		CleanupTimeout:       time.Second * 10,
+		LogLevel:             zapcore.Level(-10),
+		Development:          true,
+		EnableMetrics:        true,
+		EnableWebhookLogging: true,
+		TestNamespacePrefix:  "turbo-test",
+		MaxTestRetries:       3,
+		RetryInterval:        time.Second * 2,
 	}
 }
 
@@ -118,10 +116,6 @@ func LoadTestConfigFromEnv() *TestConfig {
 	// Load boolean configurations
 	if val := os.Getenv(EnvDevelopment); val != "" {
 		config.Development = parseBool(val)
-	}
-
-	if val := os.Getenv(EnvIgnoreArgoCD); val != "" {
-		config.IgnoreArgoCDResources = parseBool(val)
 	}
 
 	if val := os.Getenv(EnvEnableMetrics); val != "" {
@@ -186,11 +180,11 @@ func (tc *TestConfig) Validate() error {
 func (tc *TestConfig) String() string {
 	return fmt.Sprintf(
 		"TestConfig{TestTimeout: %v, WebhookReadyTimeout: %v, CleanupTimeout: %v, "+
-			"LogLevel: %v, Development: %v, IgnoreArgoCDResources: %v, "+
+			"LogLevel: %v, Development: %v, "+
 			"EnableMetrics: %v, EnableWebhookLogging: %v, TestNamespacePrefix: %s, "+
 			"MaxTestRetries: %d, RetryInterval: %v}",
 		tc.TestTimeout, tc.WebhookReadyTimeout, tc.CleanupTimeout,
-		tc.LogLevel, tc.Development, tc.IgnoreArgoCDResources,
+		tc.LogLevel, tc.Development,
 		tc.EnableMetrics, tc.EnableWebhookLogging, tc.TestNamespacePrefix,
 		tc.MaxTestRetries, tc.RetryInterval,
 	)
@@ -199,20 +193,19 @@ func (tc *TestConfig) String() string {
 // Clone creates a copy of the test configuration
 func (tc *TestConfig) Clone() *TestConfig {
 	return &TestConfig{
-		WebhookHost:           tc.WebhookHost,
-		WebhookPort:           tc.WebhookPort,
-		WebhookCertDir:        tc.WebhookCertDir,
-		TestTimeout:           tc.TestTimeout,
-		WebhookReadyTimeout:   tc.WebhookReadyTimeout,
-		CleanupTimeout:        tc.CleanupTimeout,
-		LogLevel:              tc.LogLevel,
-		Development:           tc.Development,
-		IgnoreArgoCDResources: tc.IgnoreArgoCDResources,
-		EnableMetrics:         tc.EnableMetrics,
-		EnableWebhookLogging:  tc.EnableWebhookLogging,
-		TestNamespacePrefix:   tc.TestNamespacePrefix,
-		MaxTestRetries:        tc.MaxTestRetries,
-		RetryInterval:         tc.RetryInterval,
+		WebhookHost:          tc.WebhookHost,
+		WebhookPort:          tc.WebhookPort,
+		WebhookCertDir:       tc.WebhookCertDir,
+		TestTimeout:          tc.TestTimeout,
+		WebhookReadyTimeout:  tc.WebhookReadyTimeout,
+		CleanupTimeout:       tc.CleanupTimeout,
+		LogLevel:             tc.LogLevel,
+		Development:          tc.Development,
+		EnableMetrics:        tc.EnableMetrics,
+		EnableWebhookLogging: tc.EnableWebhookLogging,
+		TestNamespacePrefix:  tc.TestNamespacePrefix,
+		MaxTestRetries:       tc.MaxTestRetries,
+		RetryInterval:        tc.RetryInterval,
 	}
 }
 

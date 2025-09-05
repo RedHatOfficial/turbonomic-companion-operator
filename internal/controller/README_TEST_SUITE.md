@@ -37,7 +37,6 @@ The test suite supports configuration through environment variables:
 | `CLEANUP_TIMEOUT` | `10s` | Timeout for cleanup operations |
 | `LOG_LEVEL` | `-10` | Log level (debug, info, warn, error) |
 | `DEVELOPMENT` | `true` | Enable development mode |
-| `IGNORE_ARGOCD_RESOURCES` | `true` | Ignore ArgoCD managed resources |
 | `ENABLE_METRICS` | `true` | Enable metrics collection |
 | `ENABLE_WEBHOOK_LOGGING` | `true` | Enable webhook logging |
 | `TEST_NAMESPACE_PREFIX` | `turbo-test` | Prefix for test namespaces |

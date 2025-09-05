@@ -28,10 +28,7 @@ Note that you cannot remove the `turbo.ibm.com/override` annotation. To release 
 
 ### Continuous reconciliation with ArgoCD
 
-If you're managing your workloads using ArgoCD, you need to do 2 things:
-
-1.  Set `IGNORED_ARGOCD` environment variable to `false` on this webhook process. By default, ArgoCD managed workloads do not have resources overridden, because ArgoCD application owner needs to take additional step (below) to avoid constant back and forth between ArgoCD / gitops and this webhook.
-2.  Ignore compute resources [tracked by ArgoCD](https://argo-cd.readthedocs.io/en/stable/user-guide/resource_tracking/) to prevent ArgoCD from marking the workload out of sync.
+If you're managing your workloads using ArgoCD, you need to ignore compute resources [tracked by ArgoCD](https://argo-cd.readthedocs.io/en/stable/user-guide/resource_tracking/) to prevent ArgoCD from marking the workload out of sync.
 
     ```yaml
     apiVersion: argoproj.io/v1alpha1
@@ -45,6 +42,8 @@ If you're managing your workloads using ArgoCD, you need to do 2 things:
     ```
 
     (see [diffing customization in ArgoCD documentation](https://argo-cd.readthedocs.io/en/stable/user-guide/diffing/))
+
+If you neglect doing that, ArgoCD will be frequently trying to reconcile the workload from the source of truth and this webhook will prevent the compute resources from being updated, ad infinitum.
 
 ## Metrics
 
