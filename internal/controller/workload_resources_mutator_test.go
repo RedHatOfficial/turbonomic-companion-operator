@@ -367,6 +367,211 @@ var _ = Describe("WorkloadResourcesMutator webhook", func() {
 		})
 	})
 
+	Context("validates turbo.ibm.com/override annotation values", func() {
+		const workloadName = "test-workload"
+
+		It("should accept valid annotation values: false", func() {
+			namespaceName := "annotation-validation-false"
+
+			By("Creating a Namespace")
+			ns := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: namespaceName,
+					Annotations: map[string]string{
+						"turbo.ibm.com/override": "enabled", // Required for webhook to trigger
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, ns)).Should(Succeed())
+
+			By("Creating a fresh workload")
+			deployment := createDeployment(workloadName, namespaceName)
+			Expect(k8sClient.Create(ctx, deployment)).Should(Succeed())
+
+			By("Waiting for workload to be available")
+			workload := &appsv1.Deployment{}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, types.NamespacedName{Name: workloadName, Namespace: namespaceName}, workload)
+			}).Should(Succeed())
+
+			By("Setting turbo.ibm.com/override to 'false'")
+			workload.ObjectMeta.Annotations = map[string]string{managedAnnotation: "false"}
+			Expect(k8sClient.Update(ctx, workload)).Should(Succeed())
+
+			By("Verifying the annotation was accepted")
+			Eventually(func() string {
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: workloadName, Namespace: namespaceName}, workload)).Should(Succeed())
+				return workload.ObjectMeta.Annotations[managedAnnotation]
+			}).Should(Equal("false"))
+		})
+
+		It("should accept valid annotation values: cpu", func() {
+			namespaceName := "annotation-validation-cpu"
+
+			By("Creating a Namespace")
+			ns := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: namespaceName,
+					Annotations: map[string]string{
+						"turbo.ibm.com/override": "enabled", // Required for webhook to trigger
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, ns)).Should(Succeed())
+
+			By("Creating a fresh workload")
+			deployment := createDeployment(workloadName, namespaceName)
+			Expect(k8sClient.Create(ctx, deployment)).Should(Succeed())
+
+			By("Waiting for workload to be available")
+			workload := &appsv1.Deployment{}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, types.NamespacedName{Name: workloadName, Namespace: namespaceName}, workload)
+			}).Should(Succeed())
+
+			By("Setting turbo.ibm.com/override to 'cpu'")
+			workload.ObjectMeta.Annotations = map[string]string{managedAnnotation: "cpu"}
+			Expect(k8sClient.Update(ctx, workload)).Should(Succeed())
+
+			By("Verifying the annotation was accepted")
+			Eventually(func() string {
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: workloadName, Namespace: namespaceName}, workload)).Should(Succeed())
+				return workload.ObjectMeta.Annotations[managedAnnotation]
+			}).Should(Equal("cpu"))
+		})
+
+		It("should accept valid annotation values: all", func() {
+			namespaceName := "annotation-validation-all"
+
+			By("Creating a Namespace")
+			ns := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: namespaceName,
+					Annotations: map[string]string{
+						"turbo.ibm.com/override": "enabled", // Required for webhook to trigger
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, ns)).Should(Succeed())
+
+			By("Creating a fresh workload")
+			deployment := createDeployment(workloadName, namespaceName)
+			Expect(k8sClient.Create(ctx, deployment)).Should(Succeed())
+
+			By("Waiting for workload to be available")
+			workload := &appsv1.Deployment{}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, types.NamespacedName{Name: workloadName, Namespace: namespaceName}, workload)
+			}).Should(Succeed())
+
+			By("Setting turbo.ibm.com/override to 'all'")
+			workload.ObjectMeta.Annotations = map[string]string{managedAnnotation: "all"}
+			Expect(k8sClient.Update(ctx, workload)).Should(Succeed())
+
+			By("Verifying the annotation was accepted")
+			Eventually(func() string {
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: workloadName, Namespace: namespaceName}, workload)).Should(Succeed())
+				return workload.ObjectMeta.Annotations[managedAnnotation]
+			}).Should(Equal("all"))
+		})
+
+		It("should reject invalid annotation values", func() {
+			namespaceName := "annotation-validation-invalid"
+
+			By("Creating a Namespace")
+			ns := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: namespaceName,
+					Annotations: map[string]string{
+						"turbo.ibm.com/override": "enabled", // Required for webhook to trigger
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, ns)).Should(Succeed())
+
+			By("Creating a fresh workload")
+			deployment := createDeployment(workloadName, namespaceName)
+			Expect(k8sClient.Create(ctx, deployment)).Should(Succeed())
+
+			By("Waiting for workload to be available")
+			workload := &appsv1.Deployment{}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, types.NamespacedName{Name: workloadName, Namespace: namespaceName}, workload)
+			}).Should(Succeed())
+
+			By("Attempting to set turbo.ibm.com/override to invalid value 'invalid'")
+			workload.ObjectMeta.Annotations = map[string]string{managedAnnotation: "invalid"}
+			err := k8sClient.Update(ctx, workload)
+			Expect(err).Should(HaveOccurred())
+			Expect(err.Error()).Should(ContainSubstring("Invalid value 'invalid' for annotation 'turbo.ibm.com/override'"))
+			Expect(err.Error()).Should(ContainSubstring("Valid values are: false, cpu, all"))
+		})
+
+		It("should reject empty string as annotation value", func() {
+			namespaceName := "annotation-validation-empty"
+
+			By("Creating a Namespace")
+			ns := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: namespaceName,
+					Annotations: map[string]string{
+						"turbo.ibm.com/override": "enabled", // Required for webhook to trigger
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, ns)).Should(Succeed())
+
+			By("Creating a fresh workload")
+			deployment := createDeployment(workloadName, namespaceName)
+			Expect(k8sClient.Create(ctx, deployment)).Should(Succeed())
+
+			By("Waiting for workload to be available")
+			workload := &appsv1.Deployment{}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, types.NamespacedName{Name: workloadName, Namespace: namespaceName}, workload)
+			}).Should(Succeed())
+
+			By("Attempting to set turbo.ibm.com/override to empty string")
+			workload.ObjectMeta.Annotations = map[string]string{managedAnnotation: ""}
+			err := k8sClient.Update(ctx, workload)
+			Expect(err).Should(HaveOccurred())
+			Expect(err.Error()).Should(ContainSubstring("Invalid value '' for annotation 'turbo.ibm.com/override'"))
+		})
+
+		It("should reject 'true' as annotation value (deprecated, use 'all' instead)", func() {
+			namespaceName := "annotation-validation-true"
+
+			By("Creating a Namespace")
+			ns := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: namespaceName,
+					Annotations: map[string]string{
+						"turbo.ibm.com/override": "enabled", // Required for webhook to trigger
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, ns)).Should(Succeed())
+
+			By("Creating a fresh workload")
+			deployment := createDeployment(workloadName, namespaceName)
+			Expect(k8sClient.Create(ctx, deployment)).Should(Succeed())
+
+			By("Waiting for workload to be available")
+			workload := &appsv1.Deployment{}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, types.NamespacedName{Name: workloadName, Namespace: namespaceName}, workload)
+			}).Should(Succeed())
+
+			By("Attempting to set turbo.ibm.com/override to 'true' (deprecated)")
+			workload.ObjectMeta.Annotations = map[string]string{managedAnnotation: "true"}
+			err := k8sClient.Update(ctx, workload)
+			Expect(err).Should(HaveOccurred())
+			Expect(err.Error()).Should(ContainSubstring("Invalid value 'true' for annotation 'turbo.ibm.com/override'"))
+			Expect(err.Error()).Should(ContainSubstring("Valid values are: false, cpu, all"))
+		})
+
+	})
+
 })
 
 func createDeployment(name string, namespace string) *appsv1.Deployment {

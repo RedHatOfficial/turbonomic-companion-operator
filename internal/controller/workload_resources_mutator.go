@@ -92,6 +92,18 @@ func shouldManageResource(managementMode, resourceType string) bool {
 	}
 }
 
+// isValidManagementMode checks if the provided management mode value is valid
+// Valid values are: "false", "cpu", "all"
+// Note: "true" is also internally accepted but gets normalized to "all"
+func isValidManagementMode(mode string) bool {
+	switch mode {
+	case ManagementModeFalse, ManagementModeCPU, ManagementModeAll:
+		return true
+	default:
+		return false
+	}
+}
+
 // +kubebuilder:webhook:path=/mutate-v1-obj,admissionReviewVersions=v1,mutating=true,failurePolicy=Ignore,groups=apps,resources=deployments;statefulsets,verbs=update,versions=v1,name=workloadmutator.turbo.ibm.com,sideEffects=NoneOnDryRun
 type WorkloadResourcesMutator struct {
 	Client  client.Client
@@ -194,7 +206,14 @@ func (a *WorkloadResourcesMutator) Handle(ctx context.Context, req admission.Req
 	} else {
 		log.V(3).Info("Turbonomic is NOT making this change")
 
+		// Validate annotation value when set by non-Turbonomic users
 		if value, exists := annotations[managedAnnotation]; exists {
+			if !isValidManagementMode(value) {
+				log.Info("Invalid value for turbo.ibm.com/override annotation", "value", value, "validValues", []string{ManagementModeFalse, ManagementModeCPU, ManagementModeAll})
+				return admission.Denied(fmt.Sprintf("Invalid value '%s' for annotation '%s'. Valid values are: %s, %s, %s",
+					value, managedAnnotation, ManagementModeFalse, ManagementModeCPU, ManagementModeAll))
+			}
+
 			if !isWorkloadManaged(annotations) {
 				log.V(3).Info("This resource is explicitly annotated to NOT do the override", managedAnnotation, value)
 				return admission.Allowed("")
