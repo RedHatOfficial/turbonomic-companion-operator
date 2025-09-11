@@ -169,15 +169,11 @@ func main() {
 
 	decoder := admission.NewDecoder(scheme)
 
-	ignoreArgoCDManagedResources := BoolEnvVar("IGNORED_ARGOCD", true)
-	setupLog.Info("WorkloadResourcesMutator configuration", "ignoreArgoCDManagedResources", ignoreArgoCDManagedResources)
-
 	mgr.GetWebhookServer().Register("/mutate-v1-obj", &webhook.Admission{
 		Handler: &mutator.WorkloadResourcesMutator{
-			Client:                       mgr.GetClient(),
-			Log:                          ctrl.Log.WithName("com.ibm.turbo").WithName("WorkloadResourcesMutator"),
-			Decoder:                      &decoder,
-			IgnoreArgoCDManagedResources: ignoreArgoCDManagedResources,
+			Client:  mgr.GetClient(),
+			Log:     ctrl.Log.WithName("com.ibm.turbo").WithName("WorkloadResourcesMutator"),
+			Decoder: &decoder,
 		},
 	})
 

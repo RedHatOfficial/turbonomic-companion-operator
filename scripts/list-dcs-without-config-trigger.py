@@ -16,7 +16,8 @@ for item in data.get("items", []):
     triggers = item.get("spec", {}).get("triggers", [])
     annotations = item["metadata"].get("annotations", {})
 
-    override = annotations.get("turbo.ibm.com/override", "false").lower() == "true"
+    override_value = annotations.get("turbo.ibm.com/override")
+    override = override_value is not None and override_value.lower() != "false"
 
     # Check if no configChange trigger is present
     has_config_trigger = any(

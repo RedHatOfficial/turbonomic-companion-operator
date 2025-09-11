@@ -149,10 +149,9 @@ var _ = BeforeSuite(func() {
 	decoder := admission.NewDecoder(testEnv.Scheme)
 	hookServer.Register(webhookPath, &webhook.Admission{
 		Handler: &WorkloadResourcesMutator{
-			Client:                       k8sManager.GetClient(),
-			Log:                          ctrl.Log.WithName("mutatingwebhook").WithName("WorkloadResourcesMutator"),
-			Decoder:                      &decoder,
-			IgnoreArgoCDManagedResources: testConfig.IgnoreArgoCDResources,
+			Client:  k8sManager.GetClient(),
+			Log:     ctrl.Log.WithName("mutatingwebhook").WithName("WorkloadResourcesMutator"),
+			Decoder: &decoder,
 		}})
 
 	// Start manager in background

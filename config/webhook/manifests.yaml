@@ -35,8 +35,4 @@ webhooks:
     resources:
     - deploymentconfigs
   sideEffects: NoneOnDryRun
-  namespaceSelector:
-    matchExpressions:
-    - key: turbo.ibm.com/override
-      operator: Exists
   timeoutSeconds: 15
