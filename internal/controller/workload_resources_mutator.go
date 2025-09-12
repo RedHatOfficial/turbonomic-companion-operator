@@ -93,11 +93,11 @@ func shouldManageResource(managementMode, resourceType string) bool {
 }
 
 // isValidManagementMode checks if the provided management mode value is valid
-// Valid values are: "false", "cpu", "all"
-// Note: "true" is also internally accepted but gets normalized to "all"
+// Advertised valid values are: "false", "cpu", "all"
+// Also accepts "true" for backward compatibility (legacy, normalized to "all") but doesn't advertise it
 func isValidManagementMode(mode string) bool {
 	switch mode {
-	case ManagementModeFalse, ManagementModeCPU, ManagementModeAll:
+	case ManagementModeFalse, ManagementModeCPU, ManagementModeAll, ManagementModeTrue:
 		return true
 	default:
 		return false

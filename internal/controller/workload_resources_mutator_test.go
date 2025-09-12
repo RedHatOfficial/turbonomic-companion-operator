@@ -538,7 +538,7 @@ var _ = Describe("WorkloadResourcesMutator webhook", func() {
 			Expect(err.Error()).Should(ContainSubstring("Invalid value '' for annotation 'turbo.ibm.com/override'"))
 		})
 
-		It("should reject 'true' as annotation value (deprecated, use 'all' instead)", func() {
+		It("should accept 'true' as annotation value (legacy value, normalized to 'all')", func() {
 			namespaceName := "annotation-validation-true"
 
 			By("Creating a Namespace")
@@ -562,12 +562,15 @@ var _ = Describe("WorkloadResourcesMutator webhook", func() {
 				return k8sClient.Get(ctx, types.NamespacedName{Name: workloadName, Namespace: namespaceName}, workload)
 			}).Should(Succeed())
 
-			By("Attempting to set turbo.ibm.com/override to 'true' (deprecated)")
+			By("Setting turbo.ibm.com/override to 'true' (legacy value)")
 			workload.ObjectMeta.Annotations = map[string]string{managedAnnotation: "true"}
-			err := k8sClient.Update(ctx, workload)
-			Expect(err).Should(HaveOccurred())
-			Expect(err.Error()).Should(ContainSubstring("Invalid value 'true' for annotation 'turbo.ibm.com/override'"))
-			Expect(err.Error()).Should(ContainSubstring("Valid values are: false, cpu, all"))
+			Expect(k8sClient.Update(ctx, workload)).Should(Succeed())
+
+			By("Verifying the annotation was accepted and normalized to 'all'")
+			Eventually(func() string {
+				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: workloadName, Namespace: namespaceName}, workload)).Should(Succeed())
+				return workload.ObjectMeta.Annotations[managedAnnotation]
+			}).Should(Equal("all")) // The webhook accepts "true" but normalizes it to "all"
 		})
 
 	})
