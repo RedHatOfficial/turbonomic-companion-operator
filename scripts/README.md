@@ -7,3 +7,4 @@ Lists DeploymentConfigs which do not have a config trigger defined. When Turbono
 ## remove-override-from-ns.sh
 
 Remove `turbo.ibm.com/override` annotations from all workloads in a namespace, allowing the owner to manage compute resources directly. Perform this step **after** the namespace was removed from Turbonomic rightsizing, otherwise the annotations will be restored.
+Note that you need to copy the generated commands and execute them yourself.
