@@ -75,5 +75,6 @@ make test
 ```
 make build . -t <image name>
 podman push <image name>
+make install
 make deploy IMG=<image name>
 ```
