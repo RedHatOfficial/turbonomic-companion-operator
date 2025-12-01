@@ -29,3 +29,5 @@ for KIND in "${KINDS[@]}"; do
      | "oc annotate \($kind) \(.metadata.name) -n \($ns) turbo.ibm.com/override-"' 
 done
 
+echo
+echo "Copy and execute the above commands."
