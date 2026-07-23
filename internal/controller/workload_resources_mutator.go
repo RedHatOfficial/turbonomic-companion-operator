@@ -460,7 +460,7 @@ func trackResourcesByContainer(workloadDimensions []string, source *unstructured
 	srcContainers, found, err := unstructured.NestedSlice(source.Object, "spec", "template", "spec", "containers")
 	if err != nil || !found {
 		// this should never happen - containers need to be there
-		log.Error(err, "failed to retrieve containers from %s", workloadDimensions)
+		log.Error(err, "failed to retrieve containers", "workloadDimensions", workloadDimensions)
 		return fmt.Errorf("failed to retrieve containers from %s: %v", workloadDimensions, err)
 	}
 
@@ -504,13 +504,13 @@ func trackResourcesByContainer(workloadDimensions []string, source *unstructured
 func getParsedResource(resources map[string]interface{}, log *logr.Logger, resourceType string, kind string) (*resource.Quantity, error) {
 	value_str, found, err := unstructured.NestedString(resources, resourceType, kind)
 	if err != nil {
-		log.Error(err, "failed to retrieve %s/%s", resourceType, kind)
+		log.Error(err, "failed to retrieve resource", "resourceType", resourceType, "kind", kind)
 		return nil, fmt.Errorf("failed to retrieve %s/%s: %v", resourceType, kind, err)
 	}
 	if found {
 		value, err := resource.ParseQuantity(value_str)
 		if err != nil {
-			log.Error(err, "failed to parse quantify %s/%s", resourceType, kind)
+			log.Error(err, "failed to parse quantity", "resourceType", resourceType, "kind", kind)
 			return nil, fmt.Errorf("failed to parse quantity %s/%s: %v", resourceType, kind, err)
 		}
 		return &value, nil
