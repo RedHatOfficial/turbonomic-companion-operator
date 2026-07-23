@@ -19,10 +19,8 @@ package main
 import (
 	"crypto/tls"
 	"flag"
-	"log"
 	"os"
 	"path/filepath"
-	"strconv"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -183,21 +181,6 @@ func main() {
 		os.Exit(1)
 	}
 
-}
-
-func BoolEnvVar(varName string, defaultValue bool) bool {
-	value, isPresent := os.LookupEnv(varName)
-	if !isPresent {
-		return defaultValue
-	}
-	boolValue, err := strconv.ParseBool(value)
-
-	if err != nil {
-		log.Println("Error parsing env var "+varName, err)
-		return defaultValue
-	}
-
-	return boolValue
 }
 
 // Needed to serve metrics using the same cert as the webhook endpoint
