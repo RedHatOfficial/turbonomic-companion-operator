@@ -210,7 +210,7 @@ func addCertPath(tlsOpts []func(*tls.Config), certPath string) []func(*tls.Confi
 		filepath.Join(certPath, "tls.key"),
 	)
 	if err != nil {
-		setupLog.Error(err, "to initialize certificate watcher", "error", err)
+		setupLog.Error(err, "failed to initialize certificate watcher")
 		os.Exit(1)
 	}
 
