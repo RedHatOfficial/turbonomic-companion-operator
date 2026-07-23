@@ -84,8 +84,8 @@ make test
 ## Building & deploying
 
 ```
-make build . -t <image name>
-podman push <image name>
+make docker-build IMG=<image name>
+make docker-push IMG=<image name>
 make install
 make deploy IMG=<image name>
 ```
